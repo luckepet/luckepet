@@ -24,6 +24,11 @@ const productoVacio = {
 function Admin() {
   console.log("NUEVO ADMIN CARGADO");
   const [productos, setProductos] = useState<Producto[]>([]);
+  const [sesion, setSesion] = useState<any>(null);
+const [cargandoSesion, setCargandoSesion] = useState(true);
+const [email, setEmail] = useState("");
+const [password, setPassword] = useState("");
+const [iniciandoSesion, setIniciandoSesion] = useState(false);
   const [editando, setEditando] = useState<Producto | null>(null);
   const [mostrarNuevo, setMostrarNuevo] = useState(false);
   const [nuevoProducto, setNuevoProducto] = useState(productoVacio);
@@ -31,11 +36,57 @@ function Admin() {
   const [busqueda, setBusqueda] = useState("");
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
+  const [subiendoImagen, setSubiendoImagen] = useState(false);
 
   useEffect(() => {
-    cargarProductos();
-  }, []);
+  async function verificarSesion() {
+    const { data } = await supabase.auth.getSession();
 
+    setSesion(data.session);
+    setCargandoSesion(false);
+  }
+
+  verificarSesion();
+
+  const {
+    data: { subscription },
+  } = supabase.auth.onAuthStateChange((_event, session) => {
+    setSesion(session);
+  });
+
+  return () => {
+    subscription.unsubscribe();
+  };
+}, []);
+async function iniciarSesion() {
+  if (!email.trim() || !password) {
+    alert("Ingresá email y contraseña.");
+    return;
+  }
+
+  setIniciandoSesion(true);
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: email.trim(),
+    password,
+  });
+
+  if (error) {
+    console.error("ERROR AL INICIAR SESIÓN:", error);
+    alert("Email o contraseña incorrectos.");
+    setIniciandoSesion(false);
+    return;
+  }
+
+  setSesion(data.session);
+  setPassword("");
+  setIniciandoSesion(false);
+}
+
+async function cerrarSesion() {
+  await supabase.auth.signOut();
+  setSesion(null);
+}
   // =========================
   // CARGAR PRODUCTOS
   // =========================
@@ -80,6 +131,36 @@ function Admin() {
         )
     );
   }, [productos, busqueda]);
+  async function subirImagen(file: File) {
+  setSubiendoImagen(true);
+
+  const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const nombreArchivo = `${Date.now()}-${Math.random()
+    .toString(36)
+    .substring(2, 8)}.${extension}`;
+
+  const { error } = await supabase.storage
+    .from("PRODUCTOS")
+    .upload(nombreArchivo, file, {
+      cacheControl: "3600",
+      upsert: false,
+    });
+
+  if (error) {
+    console.error("ERROR AL SUBIR IMAGEN:", error);
+    alert("No se pudo subir la imagen.");
+    setSubiendoImagen(false);
+    return null;
+  }
+
+  const { data } = supabase.storage
+    .from("PRODUCTOS")
+    .getPublicUrl(nombreArchivo);
+
+  setSubiendoImagen(false);
+
+  return data.publicUrl;
+}
 
   // =========================
   // CREAR PRODUCTO
@@ -222,6 +303,89 @@ function Admin() {
   // INTERFAZ
   // =========================
 
+  if (cargandoSesion) {
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontFamily: "Arial, sans-serif",
+      }}
+    >
+      Verificando acceso...
+    </div>
+  );
+}
+
+if (!sesion) {
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "#f5f6f3",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "20px",
+        fontFamily: "Arial, sans-serif",
+      }}
+    >
+      <div
+        style={{
+          background: "white",
+          width: "100%",
+          maxWidth: "400px",
+          padding: "35px",
+          borderRadius: "20px",
+          boxShadow: "0 3px 20px rgba(0,0,0,0.08)",
+        }}
+      >
+        <h1 style={{ marginTop: 0 }}>
+          LuckePet 🐾
+        </h1>
+
+        <p style={{ color: "#777" }}>
+          Panel de administración
+        </p>
+
+        <input
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          style={inputStyle}
+        />
+
+        <input
+          type="password"
+          placeholder="Contraseña"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") iniciarSesion();
+          }}
+          style={inputStyle}
+        />
+
+        <button
+          onClick={iniciarSesion}
+          disabled={iniciandoSesion}
+          style={{
+            ...primaryButton,
+            width: "100%",
+            marginTop: "5px",
+          }}
+        >
+          {iniciandoSesion
+            ? "Ingresando..."
+            : "🔐 Iniciar sesión"}
+        </button>
+      </div>
+    </div>
+  );
+}
   return (
     <div
       style={{
@@ -295,6 +459,20 @@ function Admin() {
             >
               {mostrarNuevo ? "✕ Cerrar" : "＋ Nuevo producto"}
             </button>
+            <button
+  onClick={cerrarSesion}
+  style={{
+    background: "#eee",
+    color: "#333",
+    border: "none",
+    padding: "13px 20px",
+    borderRadius: "10px",
+    cursor: "pointer",
+    fontWeight: "bold",
+  }}
+>
+  🔒 Cerrar sesión
+</button>
           </div>
         </div>
 
@@ -466,7 +644,35 @@ function Admin() {
               </div>
 
               <div style={{ gridColumn: "1 / -1" }}>
-                <label>URL de imagen</label>
+                <div style={{ gridColumn: "1 / -1" }}>
+  <label>Imagen del producto</label>
+
+  <input
+    type="file"
+    accept="image/*"
+    onChange={async (e) => {
+      const file = e.target.files?.[0];
+
+      if (!file) return;
+
+      const url = await subirImagen(file);
+
+      if (url) {
+        setNuevoProducto({
+          ...nuevoProducto,
+          image: url,
+        });
+      }
+    }}
+    style={inputStyle}
+  />
+
+  {subiendoImagen && (
+    <p style={{ color: "#777" }}>
+      Subiendo imagen...
+    </p>
+  )}
+</div>
                 <input
                   value={nuevoProducto.image}
                   onChange={(e) =>
