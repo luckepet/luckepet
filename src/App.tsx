@@ -32,7 +32,7 @@ async function cargarProductos() {
  
 const [carrito, setCarrito] = useState<string[]>([])
 const [mostrarCarrito, setMostrarCarrito] = useState(false)
-const [busqueda, setBusqueda] = useState("")
+const [busqueda] = useState("");
 const [categoriaSeleccionada, setCategoriaSeleccionada] = useState("Todos")
   return (
     
