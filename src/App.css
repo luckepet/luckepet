@@ -27,7 +27,7 @@ nav {
 }
 
 nav button {
-  background: #ff914d;
+  background: #101F12;
   color: white;
   border: none;
   padding: 12px 18px;
@@ -65,7 +65,7 @@ main {
 }
 
 .card h3 {
-  color: #ff914d;
+  color: #caae9d;
   font-size: 25px;
   margin: 15px 0 10px;
 }
@@ -76,13 +76,13 @@ main {
 
 body {
   margin: 0;
-  background: #fff8f2;
+  background: #f0ead2;
   font-family: Arial, sans-serif;
 }
 .hero {
-  padding: 60px 20px;
+  padding: 20px 20px;
   text-align: center;
-  background: linear-gradient(135deg, #7BAE7F, #A8D5A2);
+  background: linear-gradient(135deg, #101f12, #243B26);
   color: white;
 }
 
@@ -109,7 +109,7 @@ body {
 
 .comprar {
   background: white;
-  color: #ff914d;
+  color: #101F12;
   padding: 14px 30px;
   border-radius: 30px;
   font-size: 18px;
@@ -256,7 +256,7 @@ nav button:hover {
 
 .hero-texto {
   text-align: center;
-  padding: 70px 20px;
+  padding: 20px 20px;
 }
 
 .hero-texto h2 {
@@ -314,7 +314,7 @@ nav button:hover {
 }
 
 .hero-img {
-  width: 550px;
+  width: 420px;
   max-width: 100%;
   border-radius: 25px;
   margin: 30px 0;
@@ -338,7 +338,7 @@ nav button:hover {
 }
 
 .comprar {
-  background: #ff914d;
+  background: #1c311f;
   color: white;
   border: none;
   padding: 15px 30px;
@@ -350,7 +350,7 @@ nav button:hover {
   display: flex;
   justify-content: center;
   gap: 30px;
-  padding: 15px;
+  padding: 10px;
   background: white;
   border-bottom: 1px solid #e5e5e5;
 }
@@ -504,10 +504,10 @@ nav button:hover {
 }
 
 .producto button:hover {
-  background: #ff7a26;
+  background: #101f12;
 }
 .productos {
-  padding: 50px 20px;
+  padding: 30px 20px;
   text-align: center;
 }
 
@@ -628,11 +628,11 @@ tarjeta {
 }
 
 .tarjeta button:hover {
-  background: #ff7a26;
+  background: #243B26;
 }
 
 .tarjeta button:hover {
-  background: #e87932;
+  background: #243B26;
 }
 .tarjeta {
   width: 260px;
@@ -735,4 +735,9 @@ tarjeta {
 .carrito-menu li {
   padding: 8px 0;
   border-bottom: 1px solid #eee;
+}
+.logo-img {
+  width: 90px;
+  height: auto;
+  object-fit: contain;
 }

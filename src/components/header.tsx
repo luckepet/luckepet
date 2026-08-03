@@ -1,9 +1,10 @@
 import hero from '../assets/hero.avif'
+import logo from '../assets/logo.png.jpeg'
 function Header() {
   return (
     <header className="hero">
       <div className="topbar">
-        <h1>🐾 LuckePet</h1>
+        <img src={logo} alt="LuckePet" className="logo-img" />
 
         <input
           type="text"
