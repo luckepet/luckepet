@@ -10,7 +10,6 @@ import { supabase } from "./lib/supabase";
 
 function App() {
   const [productos, setProductos] = useState<any[]>([])
-
 useEffect(() => {
   cargarProductos()
 }, [])
@@ -36,7 +35,7 @@ const [busqueda, setBusqueda] = useState("");
 const [categoriaSeleccionada, setCategoriaSeleccionada] = useState("Todos")
 const cantidadCarrito = carrito.length;
   return (
-    
+
     <div className="app">
       <Header 
   setMostrarCarrito={setMostrarCarrito}
@@ -51,36 +50,42 @@ const cantidadCarrito = carrito.length;
 
     <h2>🛒 Mi carrito</h2>
 
-    {carrito.length === 0 ? (
-      <p>Tu carrito está vacío</p>
-    ) : (
-      carrito.map((producto, index) => (
-        <div className="item-carrito" key={index}>
-          <img src={producto.image} />
+<button 
+  className="cerrar-carrito"
+  onClick={() => setMostrarCarrito(false)}
+>
+  X
+</button>
+   {carrito.length === 0 ? (
+  <p>Tu carrito está vacío</p>
+) : (
+  carrito.map((producto, index) => (
+    <div className="item-carrito" key={index}>
+      <img src={producto.image} />
 
-          <div>
-            <h4>{producto.name}</h4>
-            <p>${producto.price}</p>
-          </div>
-        </div>
-      ))
-    )}
+      <div>
+        <h4>{producto.name}</h4>
+        <p>${producto.price}</p>
+
+        <button
+          onClick={() =>
+            setCarrito(carrito.filter((_, i) => i !== index))
+          }
+        >
+          Eliminar
+        </button>
+      </div>
+    </div>
+ ))
+)}
 
   </div>
 )}
-      <section className="productos">
-  <h2>Productos destacados</h2>
+
+<section className="productos">
 <div className="categorias">
   <button onClick={() => setCategoriaSeleccionada("Todos")}>
     Todos
-  </button>
-
-  <button onClick={() => setCategoriaSeleccionada("Higiene")}>
-    🧼 Higiene
-  </button>
-
-  <button onClick={() => setCategoriaSeleccionada("Accesorios")}>
-    🧸 Accesorios
   </button>
 
   <button onClick={() => setCategoriaSeleccionada("Perros")}>
@@ -90,10 +95,17 @@ const cantidadCarrito = carrito.length;
   <button onClick={() => setCategoriaSeleccionada("Gatos")}>
     🐱 Gatos
   </button>
+
+  <button onClick={() => setCategoriaSeleccionada("Higiene")}>
+    🧼 Higiene
+  </button>
+
+  <button onClick={() => setCategoriaSeleccionada("Accesorios")}>
+    🧸 Accesorios
+  </button>
 </div>
   <div className="tarjetas">
-  <h3>Productos cargados: {productos.length}</h3>
-  <p>Cantidad: {productos.length}</p>
+ 
 {productos
   .filter((producto) =>
     producto.name?.toLowerCase().includes(busqueda.toLowerCase())
@@ -130,32 +142,6 @@ const cantidadCarrito = carrito.length;
 </section>
 <main></main>
        <main>
-        <h2>Bienvenidos a LuckePet 🐾</h2>
-
-        <p>
-          Encontrá productos de calidad para cuidar a quienes más querés.
-        </p>
-
-        <div className="productos">
-          <div className="card">
-            🦴
-            <h3>Juguetes</h3>
-            <p>Diversión para tu mascota.</p>
-          </div>
-
-          <div className="card">
-            🥩
-            <h3>Nutrición</h3>
-            <p>Alimentos y bienestar.</p>
-          </div>
-
-          <div className="card">
-            🧴
-            <h3>Higiene</h3>
-            <p>Cuidado todos los días.</p>
-          </div>
-        </div>
-
         <section className="promociones">
           <div className="promo">
             <h3>🎉 ¡Envíos gratis desde $50.000!</h3>
