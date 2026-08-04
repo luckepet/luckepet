@@ -1,4 +1,4 @@
-import hero from '../assets/hero.avif'
+
 import logo from '../assets/luckepetlogo.jpg'
 import { ShoppingCart } from "lucide-react";
 function Header({ 
