@@ -39,7 +39,9 @@ const [categoriaSeleccionada, setCategoriaSeleccionada] = useState("Todos")
     <div className="app">
       <Header 
   setMostrarCarrito={setMostrarCarrito}
-  cantidadCarrito={carrito.length}
+  cantidadCarrito={cantidadCarrito}
+  busqueda={busqueda}
+  setBusqueda={setBusqueda}
 />
       <Navbar />
      
