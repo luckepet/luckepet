@@ -34,6 +34,7 @@ const [carrito, setCarrito] = useState<any[]>([])
 const [mostrarCarrito, setMostrarCarrito] = useState(false)
 const [busqueda, setBusqueda] = useState("");
 const [categoriaSeleccionada, setCategoriaSeleccionada] = useState("Todos")
+const cantidadCarrito = carrito.length;
   return (
     
     <div className="app">
