@@ -1,6 +1,7 @@
 import hero from '../assets/hero.avif'
 import logo from '../assets/logo.png.jpeg'
-function Header() {
+import { ShoppingCart } from "lucide-react";
+function Header({ setMostrarCarrito, cantidadCarrito }: any) {
   return (
     <header className="hero">
       <div className="topbar">
@@ -11,8 +12,14 @@ function Header() {
           placeholder="Buscar productos..."
         />
 
-        <button>🛒</button>
-        <button>👤</button>
+<button 
+  className="boton-carrito"
+  onClick={() => setMostrarCarrito(true)}
+>
+  <ShoppingCart size={28} strokeWidth={3} color="black" />
+<span className="numero-carrito">{cantidadCarrito}</span>
+      </button>
+      
       </div>
      <nav className="categorias">
   <div className="menu">

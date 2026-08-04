@@ -30,35 +30,39 @@ async function cargarProductos() {
   }
 }
  
-const [carrito, setCarrito] = useState<string[]>([])
+const [carrito, setCarrito] = useState<any[]>([])
 const [mostrarCarrito, setMostrarCarrito] = useState(false)
-const [busqueda] = useState("");
+const [busqueda, setBusqueda] = useState("");
 const [categoriaSeleccionada, setCategoriaSeleccionada] = useState("Todos")
   return (
     
     <div className="app">
-      <Header />
-
+      <Header 
+  setMostrarCarrito={setMostrarCarrito}
+  cantidadCarrito={carrito.length}
+/>
       <Navbar />
-     <div
-  className="carrito"
-  onClick={() => setMostrarCarrito(!mostrarCarrito)}
->
-  🛒 Carrito: {carrito.length} productos
-</div>
+     
 {mostrarCarrito && (
-  <div className="carrito-menu">
-    <h3>Mi carrito</h3>
+  <div className="carrito-lateral">
+
+    <h2>🛒 Mi carrito</h2>
 
     {carrito.length === 0 ? (
-      <p>Tu carrito está vacío.</p>
+      <p>Tu carrito está vacío</p>
     ) : (
-      <ul>
-        {carrito.map((producto, index) => (
-          <li key={index}>{producto}</li>
-        ))}
-      </ul>
+      carrito.map((producto, index) => (
+        <div className="item-carrito" key={index}>
+          <img src={producto.image} />
+
+          <div>
+            <h4>{producto.name}</h4>
+            <p>${producto.price}</p>
+          </div>
+        </div>
+      ))
     )}
+
   </div>
 )}
       <section className="productos">
@@ -110,12 +114,12 @@ const [categoriaSeleccionada, setCategoriaSeleccionada] = useState("Todos")
         </strong>
 
         <button
-          onClick={() =>
-            setCarrito([...carrito, producto.name])
-          }
-        >
-          🛒 Agregar al carrito
-        </button>
+  onClick={() =>
+    setCarrito([...carrito, producto])
+  }
+>
+  🛒 Agregar al carrito
+</button>
       </div>
     </div>
   ))}
