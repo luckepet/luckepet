@@ -116,27 +116,43 @@ const cantidadCarrito = carrito.length;
       producto.category === categoriaSeleccionada
   )
   .map((producto) => (
-    <div className="tarjeta" key={producto.id}>
-      <img src={producto.image} alt={producto.name} />
+<div className="tarjeta" key={producto.id}>
 
-      <div className="info-producto">
-        <h3>{producto.name}</h3>
+  <div className="imagen-producto">
+    <img src={producto.image} alt={producto.name} />
 
-        <p>{producto.description}</p>
+    <button
+      className="boton-carrito"
+      onClick={() =>
+        setCarrito([...carrito, producto])
+      }
+    >
+      🛒
+    </button>
+  </div>
 
-        <strong className="precio">
-          ${producto.price}
-        </strong>
+  <div className="info-producto">
+    <h3>{producto.name}</h3>
 
-        <button
-  onClick={() =>
-    setCarrito([...carrito, producto])
-  }
->
-  🛒 Agregar al carrito
-</button>
-      </div>
+    <p>{producto.description}</p>
+
+    <div className="precio-carrito">
+      <strong className="precio">
+        ${producto.price}
+      </strong>
+
+      <button
+        className="agregar"
+        onClick={() =>
+          setCarrito([...carrito, producto])
+        }
+      >
+        Agregar
+      </button>
     </div>
+  </div>
+
+</div>
   ))}
   </div>
 </section>
