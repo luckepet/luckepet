@@ -199,11 +199,11 @@ button{
 .grid-productos,
 .tarjetas {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 25px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 15px;
   max-width: 1200px;
   margin: 30px auto;
-  padding: 0 20px;
+  padding: 0 15px;
 }
 
 .tarjeta,
@@ -211,9 +211,9 @@ button{
   background: #fff;
   border-radius: 18px;
   overflow: hidden;
-  box-shadow: 0 5px 15px rgba(0,0,0,.12);
+  box-shadow: 0 4px 12px rgba(0,0,0,.08);
   transition: transform .25s, box-shadow .25s;
-  padding-bottom: 20px;
+  padding-bottom: 15px;
 }
 
 .tarjeta:hover,
@@ -225,13 +225,14 @@ button{
 .tarjeta img,
 .producto img {
   width: 100%;
-  height: 230px;
+  height: 160px;
   object-fit: contain;
-  padding: 15px;
+  padding: 10px;
+  background: #f8f8f8;
 }
 
 .info-producto {
-  padding: 0 20px;
+  padding: 10px 12px 15px;
 }
 
 .info-producto h3 {
@@ -388,12 +389,15 @@ footer p{
 
 @media (max-width:768px){
 
-  .topbar{
-    flex-direction:column;
-    align-items:center;
-    padding:20px 15px;
-    gap:15px;
-  }
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 35px 30px;
+  background: #2f6b3f;
+  width: 100%;
+}
 
   .logo{
     flex-direction:column;
@@ -613,10 +617,12 @@ footer p{
 
   .topbar {
     display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 10px;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
   }
+}
 
   .logo-img {
     width: 120px !important;
@@ -631,7 +637,6 @@ footer p{
     order: 2;
   }
 
-}
 @media (max-width: 600px) {
 
   .topbar {
@@ -704,18 +709,6 @@ footer p{
   padding: 15px;
 }
 
-.boton-carrito {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  border: none;
-  background: #2f6b3c;
-  color: white;
-  font-size: 20px;
-}
 
 .info-producto {
   padding: 15px;
@@ -750,4 +743,26 @@ footer p{
   border: none;
   padding: 8px 14px;
   border-radius: 10px;
+}
+* {
+  border: none !important;
+}
+.boton-agregar {
+  background: #2f6b3f !important;
+  color: white !important;
+  border: none !important;
+}
+.boton-agregar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #2f6b3f;
+  color: white;
+  border: none;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
 }

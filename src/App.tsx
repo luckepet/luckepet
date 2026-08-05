@@ -54,7 +54,7 @@ const cantidadCarrito = carrito.length;
   className="cerrar-carrito"
   onClick={() => setMostrarCarrito(false)}
 >
-  X
+  
 </button>
    {carrito.length === 0 ? (
   <p>Tu carrito está vacío</p>
@@ -83,27 +83,7 @@ const cantidadCarrito = carrito.length;
 )}
 
 <section className="productos">
-<div className="categorias">
-  <button onClick={() => setCategoriaSeleccionada("Todos")}>
-    Todos
-  </button>
 
-  <button onClick={() => setCategoriaSeleccionada("Perros")}>
-    🐶 Perros
-  </button>
-
-  <button onClick={() => setCategoriaSeleccionada("Gatos")}>
-    🐱 Gatos
-  </button>
-
-  <button onClick={() => setCategoriaSeleccionada("Higiene")}>
-    🧼 Higiene
-  </button>
-
-  <button onClick={() => setCategoriaSeleccionada("Accesorios")}>
-    🧸 Accesorios
-  </button>
-</div>
   <div className="tarjetas">
  
 {productos
@@ -121,39 +101,32 @@ const cantidadCarrito = carrito.length;
   <div className="imagen-producto">
     <img src={producto.image} alt={producto.name} />
 
-    <button
-      className="boton-carrito"
-      onClick={() =>
-        setCarrito([...carrito, producto])
-      }
-    >
-      🛒
-    </button>
+
   </div>
 
   <div className="info-producto">
     <h3>{producto.name}</h3>
 
-    <p>{producto.description}</p>
 
     <div className="precio-carrito">
-      <strong className="precio">
-        ${producto.price}
-      </strong>
+  <strong className="precio">
+    ${producto.price}
+  </strong>
 
-      <button
-        className="agregar"
-        onClick={() =>
-          setCarrito([...carrito, producto])
-        }
-      >
-        Agregar
-      </button>
-    </div>
-  </div>
-
+  <button
+    className="boton-agregar"
+    onClick={(e) => {
+      e.stopPropagation()
+      setCarrito([...carrito, producto])
+    }}
+  >
+    +
+  </button>
+</div>
+</div>
 </div>
   ))}
+  
   </div>
 </section>
 <main></main>
