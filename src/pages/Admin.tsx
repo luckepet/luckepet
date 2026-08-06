@@ -58,6 +58,33 @@ const [iniciandoSesion, setIniciandoSesion] = useState(false);
     subscription.unsubscribe();
   };
 }, []);
+useEffect(() => {
+  if (sesion) {
+    cargarProductos();
+  }
+}, [sesion]);
+async function cargarProductos() {
+  console.log("Entró a cargarProductos");
+
+  setCargando(true);
+
+  const { data, error } = await supabase
+    .from("Productos")
+    .select("*")
+    .order("id", { ascending: false });
+
+  console.log("DATA:", data);
+  console.log("ERROR:", error);
+
+  if (error) {
+    console.error(error);
+    setCargando(false);
+    return;
+  }
+
+  setProductos(data || []);
+  setCargando(false);
+}
 async function iniciarSesion() {
   if (!email.trim() || !password) {
     alert("Ingresá email y contraseña.");
