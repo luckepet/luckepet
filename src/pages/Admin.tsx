@@ -63,6 +63,26 @@ useEffect(() => {
     cargarProductos();
   }
 }, [sesion]);
+useEffect(() => {
+  const canal = supabase
+    .channel("productos-cambios")
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "Productos",
+      },
+      () => {
+        cargarProductos();
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(canal);
+  };
+}, []);
 
 async function iniciarSesion() {
   if (!email.trim() || !password) {
@@ -152,12 +172,12 @@ async function cerrarSesion() {
       upsert: false,
     });
 
-  if (error) {
-    console.error("ERROR AL SUBIR IMAGEN:", error);
-    alert("No se pudo subir la imagen.");
-    setSubiendoImagen(false);
-    return null;
-  }
+if (error) {
+  console.error("ERROR AL SUBIR IMAGEN:", error);
+  alert(error.message);
+  setSubiendoImagen(false);
+  return null;
+}
 
   const { data } = supabase.storage
     .from("PRODUCTOS")
@@ -820,17 +840,39 @@ if (!sesion) {
                     <>
                       <h3>Editar producto</h3>
 
-                      <input
-                        value={editando.name}
-                        onChange={(e) =>
-                          setEditando({
-                            ...editando,
-                            name: e.target.value,
-                          })
-                        }
-                        placeholder="Nombre"
-                        style={inputStyle}
-                      />
+                  <input
+  type="file"
+  accept="image/*"
+  onChange={async (e) => {
+    const file = e.target.files?.[0];
+
+    if (!file) return;
+
+    const url = await subirImagen(file);
+
+    if (url) {
+      setEditando({
+        ...editando,
+        image: url,
+      });
+    }
+  }}
+  style={inputStyle}
+/>
+
+{editando.image && (
+  <img
+    src={editando.image}
+    alt={editando.name}
+    style={{
+      width: "120px",
+      height: "120px",
+      objectFit: "cover",
+      borderRadius: "12px",
+      marginTop: "10px",
+    }}
+  />
+)}
 
                       <input
                         value={editando.category || ""}
