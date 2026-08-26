@@ -369,26 +369,7 @@ setMostrarCarrito(false)
 
       <main>
 
-        <section className="promociones">
-
-          <div className="promo">
-
-            <h3>
-              🎉 ¡Envíos gratis desde $50.000!
-            </h3>
-
-            <p>
-              Aprovechá nuestras promociones y
-              encontrá todo lo que tu mascota necesita.
-            </p>
-
-            <button className="comprar">
-              Ver ofertas
-            </button>
-
-          </div>
-
-        </section>
+       
 
       </main>
 
