@@ -8,11 +8,20 @@
   padding: 0;
 }
 
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
 body {
   font-family: Arial, sans-serif;
   background: #f0ead2;
   color: #333;
-  overflow-x: hidden;
 }
 
 a {
@@ -41,12 +50,15 @@ button {
 ========================= */
 
 .hero {
-  background: transparent;
+  width: 100%;
+  margin: 0;
+  padding: 0;
 }
 
 .topbar {
   width: 100%;
   min-height: 120px;
+
   background: #123622;
 
   display: flex;
@@ -54,23 +66,21 @@ button {
   justify-content: space-between;
 
   gap: 25px;
-  padding: 25px 40px;
-}
 
-.logo {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
+  padding: 25px 40px;
 }
 
 .logo-img {
   width: 220px;
   height: auto;
   object-fit: contain;
+  flex-shrink: 0;
 }
 
 
-/* BUSCADOR */
+/* =========================
+   BUSCADOR
+========================= */
 
 .topbar input {
   flex: 1;
@@ -86,11 +96,65 @@ button {
   color: #333;
 
   font-size: 16px;
+
   outline: none;
 }
 
 .topbar input::placeholder {
   color: #888;
+}
+
+
+/* =========================
+   CARRITO DEL HEADER
+========================= */
+
+.boton-carrito {
+  position: relative;
+
+  width: 52px;
+  height: 52px;
+
+  flex-shrink: 0;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: white;
+  color: black;
+
+  border-radius: 50%;
+}
+
+.boton-carrito:hover {
+  transform: scale(1.05);
+}
+
+.numero-carrito {
+  position: absolute;
+
+  top: -4px;
+  right: -4px;
+
+  min-width: 22px;
+  height: 22px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 0 5px;
+
+  background: white;
+  color: #123622;
+
+  border-radius: 50%;
+
+  font-size: 12px;
+  font-weight: bold;
+
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
 }
 
 
@@ -253,7 +317,9 @@ button {
 }
 
 
-/* TARJETA */
+/* =========================
+   TARJETAS
+========================= */
 
 .tarjeta {
   background: white;
@@ -262,7 +328,7 @@ button {
 
   overflow: hidden;
 
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.07);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 
   transition:
     transform 0.2s,
@@ -272,17 +338,13 @@ button {
 .tarjeta:hover {
   transform: translateY(-4px);
 
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.12);
-}
-
-.tarjeta:hover {
-  transform: translateY(-4px);
-
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
 }
 
 
-/* IMAGEN */
+/* =========================
+   IMAGEN PRODUCTO
+========================= */
 
 .imagen-producto {
   width: 100%;
@@ -310,7 +372,9 @@ button {
 }
 
 
-/* INFORMACIÓN */
+/* =========================
+   INFORMACIÓN PRODUCTO
+========================= */
 
 .info-producto {
   padding: 16px;
@@ -329,7 +393,9 @@ button {
 }
 
 
-/* PRECIO + BOTÓN */
+/* =========================
+   PRECIO + AGREGAR
+========================= */
 
 .precio-carrito {
   display: flex;
@@ -375,80 +441,237 @@ button {
 
 
 /* =========================
-   PROMOCIONES
+   CARRITO LATERAL
 ========================= */
 
-.promociones {
-  padding: 20px 20px 60px;
-}
+.carrito-lateral {
+  position: fixed;
 
-.promo {
-  width: 100%;
-  max-width: 900px;
+  top: 0;
+  right: 0;
 
-  margin: 0 auto;
+  width: 380px;
+  max-width: 90%;
+
+  height: 100vh;
 
   background: white;
 
-  border-radius: 18px;
-
   padding: 25px;
 
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: -8px 0 25px rgba(0, 0, 0, 0.18);
 
+  z-index: 1000;
+
+  overflow-y: auto;
+}
+
+
+/* CABECERA */
+
+.carrito-header {
+  display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+
+  margin-bottom: 25px;
+
+  padding-bottom: 15px;
+
+  border-bottom: 1px solid #eee;
+}
+
+.carrito-header h2 {
+  color: #123622;
+
+  font-size: 22px;
+}
+
+.cerrar-carrito {
+  width: 35px;
+  height: 35px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: #123622;
+  color: white;
+
+  border-radius: 50%;
+
+  font-size: 24px;
+}
+
+.cerrar-carrito:hover {
+  background: #2f6b3f;
+
+  transform: scale(1.05);
+}
+
+
+/* CARRITO VACÍO */
+
+.carrito-lateral > p {
   text-align: center;
+
+  color: #777;
+
+  padding: 40px 10px;
+}
+
+
+/* PRODUCTO EN CARRITO */
+
+.item-carrito {
+  display: flex;
+
+  align-items: center;
+
+  gap: 15px;
+
+  padding: 15px 0;
+
+  border-bottom: 1px solid #eee;
+}
+
+.item-carrito img {
+  width: 75px;
+  height: 75px;
+
+  object-fit: contain;
+
+  border-radius: 10px;
+
+  background: #f8f8f8;
+}
+
+.info-carrito {
+  flex: 1;
+}
+
+.item-carrito h4 {
+  color: #333;
+
+  font-size: 15px;
+
+  margin-bottom: 6px;
+}
+
+.item-carrito p {
+  color: #2f6b3f;
+
+  font-weight: bold;
+
+  margin-bottom: 8px;
 }
 
 
 /* =========================
-   HEADER - CARRITO
+   CONTROLES CARRITO
 ========================= */
 
-.boton-carrito {
-  position: relative;
+.cantidad-carrito {
+  display: flex;
 
-  width: 52px;
-  height: 52px;
+  align-items: center;
 
-  flex-shrink: 0;
+  gap: 12px;
+
+  margin-top: 10px;
+}
+
+.cantidad-carrito button {
+  width: 30px;
+  height: 30px;
 
   display: flex;
   align-items: center;
   justify-content: center;
 
-  background: white;
-
-  border-radius: 50%;
-}
-
-.boton-carrito:hover {
-  transform: scale(1.05);
-}
-
-.numero-carrito {
-  position: absolute;
-
-  top: -4px;
-  right: -4px;
-
-  min-width: 22px;
-  height: 22px;
-
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  padding: 0 5px;
-
-  background: white;
-  color: #123622;
+  background: #123622;
+  color: white;
 
   border-radius: 50%;
 
-  font-size: 12px;
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.cantidad-carrito button:hover {
+  background: #2f6b3f;
+}
+
+.cantidad-carrito span {
+  min-width: 20px;
+
+  text-align: center;
+
   font-weight: bold;
 
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+  color: #333;
+}
+
+
+/* =========================
+   TOTAL CARRITO
+========================= */
+
+.total-carrito {
+  margin-top: 25px;
+
+  padding-top: 20px;
+
+  border-top: 1px solid #eee;
+}
+
+.total-carrito > div {
+  display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+
+  margin-bottom: 18px;
+}
+
+.total-carrito span {
+  font-size: 18px;
+  font-weight: bold;
+
+  color: #333;
+}
+
+.total-carrito strong {
+  font-size: 23px;
+
+  color: #123622;
+}
+
+
+/* =========================
+   BOTÓN WHATSAPP
+========================= */
+
+.boton-comprar {
+  width: 100%;
+
+  padding: 14px;
+
+  background: #2f6b3f;
+
+  color: white;
+
+  border-radius: 12px;
+
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.boton-comprar:hover {
+  background: #123622;
+
+  transform: translateY(-1px);
 }
 
 
@@ -460,6 +683,7 @@ button {
 
   .topbar {
     padding: 20px 25px;
+
     gap: 18px;
   }
 
@@ -473,9 +697,9 @@ button {
 
   .tarjetas {
     grid-template-columns: repeat(3, 1fr);
+
     gap: 18px;
   }
-
 }
 
 
@@ -485,9 +709,9 @@ button {
 
 @media (max-width: 600px) {
 
-  /* HEADER */
-
   .topbar {
+    width: 100%;
+
     min-height: auto;
 
     display: grid;
@@ -498,10 +722,13 @@ button {
     gap: 15px;
 
     padding: 18px 15px 20px;
+
+    background: #123622;
   }
 
   .logo-img {
     width: 155px;
+
     grid-column: 1;
     grid-row: 1;
   }
@@ -571,6 +798,7 @@ button {
 
   .imagen-producto img {
     width: 100%;
+
     height: 180px;
 
     object-fit: contain;
@@ -605,18 +833,15 @@ button {
   }
 
 
-  /* PROMOCIONES */
+  /* CARRITO */
 
-  .promociones {
-    padding: 15px 12px 40px;
+  .carrito-lateral {
+    width: 100%;
+
+    max-width: 100%;
+
+    padding: 20px;
   }
-
-  .promo {
-    padding: 20px 15px;
-
-    border-radius: 15px;
-  }
-
 }
 
 
@@ -632,6 +857,7 @@ button {
 
   .topbar {
     padding-left: 12px;
+
     padding-right: 12px;
   }
 
@@ -650,329 +876,4 @@ button {
   .precio {
     font-size: 16px;
   }
-
-}
-/* =========================
-   CARRITO LATERAL
-========================= */
-
-.carrito-lateral {
-  position: fixed;
-
-  top: 0;
-  right: 0;
-
-  width: 380px;
-  max-width: 90%;
-
-  height: 100vh;
-
-  background: white;
-
-  padding: 25px;
-
-  box-shadow: -8px 0 25px rgba(0, 0, 0, 0.18);
-
-  z-index: 1000;
-
-  overflow-y: auto;
-}
-
-
-/* CABECERA DEL CARRITO */
-
-.carrito-header {
-  display: flex;
-
-  align-items: center;
-  justify-content: space-between;
-
-  margin-bottom: 25px;
-
-  padding-bottom: 15px;
-
-  border-bottom: 1px solid #eee;
-}
-
-.carrito-header h2 {
-  color: #123622;
-
-  font-size: 22px;
-}
-
-.cerrar-carrito {
-  width: 35px;
-  height: 35px;
-
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  background: #123622;
-  color: white;
-
-  border-radius: 50%;
-
-  font-size: 24px;
-}
-
-.cerrar-carrito:hover {
-  background: #2f6b3f;
-
-  transform: scale(1.05);
-}
-
-
-/* CARRITO VACÍO */
-
-.carrito-lateral > p {
-  text-align: center;
-
-  color: #777;
-
-  padding: 40px 10px;
-}
-
-
-/* PRODUCTO DEL CARRITO */
-
-.item-carrito {
-  display: flex;
-
-  align-items: center;
-
-  gap: 15px;
-
-  padding: 15px 0;
-
-  border-bottom: 1px solid #eee;
-}
-
-.item-carrito img {
-  width: 75px;
-  height: 75px;
-
-  object-fit: contain;
-
-  border-radius: 10px;
-
-  background: #f8f8f8;
-}
-
-.item-carrito h4 {
-  color: #333;
-
-  font-size: 15px;
-
-  margin-bottom: 6px;
-}
-
-.item-carrito p {
-  color: #2f6b3f;
-
-  font-weight: bold;
-
-  margin-bottom: 8px;
-}
-
-.item-carrito button {
-  background: transparent;
-
-  color: #b33;
-
-  font-size: 13px;
-
-  padding: 0;
-}
-
-.item-carrito button:hover {
-  text-decoration: underline;
-}
-
-
-/* =========================
-   CARRITO EN CELULAR
-========================= */
-
-@media (max-width: 600px) {
-
-  .carrito-lateral {
-    width: 100%;
-    max-width: 100%;
-
-    padding: 20px;
-  }
-
-}
-/* =========================
-   CONTROLES DEL CARRITO
-========================= */
-
-.info-carrito {
-  flex: 1;
-}
-
-.cantidad-carrito {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 10px;
-}
-
-.cantidad-carrito button {
-  width: 30px;
-  height: 30px;
-
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  background: #123622;
-  color: white;
-
-  border-radius: 50%;
-
-  font-size: 18px;
-  font-weight: bold;
-}
-
-.cantidad-carrito button:hover {
-  background: #2f6b3f;
-}
-
-.cantidad-carrito span {
-  min-width: 20px;
-
-  text-align: center;
-
-  font-weight: bold;
-  color: #333;
-}
-
-.eliminar-carrito {
-  margin-top: 8px;
-
-  background: transparent;
-
-  color: #a33;
-
-  font-size: 12px;
-}
-
-.eliminar-carrito:hover {
-  text-decoration: underline;
-}
-
-
-/* =========================
-   TOTAL
-========================= */
-
-.total-carrito {
-  margin-top: 25px;
-
-  padding-top: 20px;
-
-  border-top: 1px solid #eee;
-}
-
-.total-carrito > div {
-  display: flex;
-
-  align-items: center;
-  justify-content: space-between;
-
-  margin-bottom: 18px;
-}
-
-.total-carrito span {
-  font-size: 18px;
-  font-weight: bold;
-
-  color: #333;
-}
-
-.total-carrito strong {
-  font-size: 23px;
-
-  color: #123622;
-}
-
-
-/* =========================
-   BOTÓN COMPRAR
-========================= */
-
-.boton-comprar {
-  width: 100%;
-
-  padding: 14px;
-
-  background: #2f6b3f;
-
-  color: white;
-
-  border-radius: 12px;
-
-  font-size: 16px;
-  font-weight: bold;
-}
-
-.boton-comprar:hover {
-  background: #123622;
-  transform: translateY(-1px);
-}
-/* =========================
-   CARRITO DEL HEADER
-========================= */
-
-.boton-carrito {
-  position: relative;
-
-  width: 48px;
-  height: 48px;
-
-  flex-shrink: 0;
-
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  background: white;
-  color: black;
-
-  border-radius: 50%;
-}
-
-.boton-carrito svg {
-  display: block;
-  color: black;
-  stroke: black;
-}
-
-.numero-carrito {
-  position: absolute;
-
-  top: -4px;
-  right: -4px;
-
-  min-width: 21px;
-  height: 21px;
-
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  background: white;
-  color: black;
-
-  border-radius: 50%;
-
-  font-size: 12px;
-  font-weight: bold;
-}
-.boton-carrito span:first-child {
-  filter: grayscale(1) brightness(0);
-  font-size: 31px !important;
-  font-weight: 900;
 }
