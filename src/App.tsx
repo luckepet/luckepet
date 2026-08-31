@@ -32,7 +32,6 @@ type Imagen = {
 }
 
 function App() {
-
   const [productos, setProductos] = useState<Producto[]>([])
   const [imagenesPortada, setImagenesPortada] =
     useState<Record<number, string>>({})
@@ -77,7 +76,6 @@ function App() {
   }, [])
 
   async function cargarProductos() {
-
     const { data, error } = await supabase
       .from('Productos')
       .select('*')
@@ -96,7 +94,6 @@ function App() {
   // =====================================================
 
   async function cargarFotosPortada() {
-
     const mapa: Record<number, string> = {}
 
     const {
@@ -113,10 +110,8 @@ function App() {
         errorGenerales
       )
     } else {
-
       ;(generales || []).forEach(
         (imagen: Imagen) => {
-
           if (
             imagen.producto_id &&
             imagen.image_url?.trim() &&
@@ -125,7 +120,6 @@ function App() {
             mapa[imagen.producto_id] =
               imagen.image_url.trim()
           }
-
         }
       )
     }
@@ -143,7 +137,6 @@ function App() {
         errorVariantes
       )
     } else if (variantesBD?.length) {
-
       const ids = variantesBD.map(
         variante => variante.id
       )
@@ -158,22 +151,17 @@ function App() {
         .order('orden', { ascending: true })
 
       if (errorFotos) {
-
         console.error(
           'ERROR FOTOS VARIANTES:',
           errorFotos
         )
-
       } else {
-
         ;(fotosVariantes || []).forEach(
           (imagen: Imagen) => {
-
             const variante =
               variantesBD.find(
                 v =>
-                  v.id ===
-                  imagen.variante_id
+                  v.id === imagen.variante_id
               )
 
             if (
@@ -184,7 +172,6 @@ function App() {
               mapa[variante.producto_id] =
                 imagen.image_url.trim()
             }
-
           }
         )
       }
@@ -194,31 +181,34 @@ function App() {
   }
 
   // =====================================================
-  // CARGAR TODAS LAS FOTOS DEL PRODUCTO
+  // CARGAR FOTOS GENERALES DEL PRODUCTO
   // =====================================================
 
-  async function cargarTodasLasImagenesProducto(
+async function cargarTodasLasImagenesProducto(
   producto: Producto
 ) {
-
   const fotos: string[] = []
 
-  const agregarFoto = (url: string | null | undefined) => {
-
-    if (!url) {
-      return
-    }
+  const agregarFoto = (
+    url: string | null | undefined
+  ) => {
+    if (!url) return
 
     const limpia = url.trim()
 
-    if (!limpia) {
-      return
-    }
+    if (!limpia) return
 
-    // Evita la misma imagen aunque la URL tenga
-    // pequeñas diferencias al final.
+    // Comparamos la URL sin parámetros finales
+    // para evitar que la misma imagen aparezca duplicada.
+    const base = limpia
+      .split('?')[0]
+      .split('#')[0]
+
     const yaExiste = fotos.some(
-      foto => foto.trim() === limpia
+      foto =>
+        foto
+          .split('?')[0]
+          .split('#')[0] === base
     )
 
     if (!yaExiste) {
@@ -227,13 +217,13 @@ function App() {
   }
 
   // =====================================================
-  // 1. FOTO PRINCIPAL DEL PRODUCTO
+  // FOTO PRINCIPAL
   // =====================================================
 
   agregarFoto(producto.image)
 
   // =====================================================
-  // 2. FOTOS GENERALES DEL PRODUCTO
+  // FOTOS GENERALES
   // =====================================================
 
   const {
@@ -262,7 +252,7 @@ function App() {
   }
 
   // =====================================================
-  // 3. BUSCAR VARIANTES DEL PRODUCTO
+  // VARIANTES
   // =====================================================
 
   const {
@@ -286,10 +276,6 @@ function App() {
       variante => variante.id
     )
 
-    // ===================================================
-    // 4. FOTOS DE TODAS LAS VARIANTES
-    // ===================================================
-
     const {
       data: fotosBD,
       error: errorFotos
@@ -298,10 +284,7 @@ function App() {
       .select(
         'variante_id, image_url, orden'
       )
-      .in(
-        'variante_id',
-        ids
-      )
+      .in('variante_id', ids)
       .order(
         'orden',
         { ascending: true }
@@ -325,21 +308,21 @@ function App() {
   }
 
   console.log(
-    'FOTOS FINALES SIN DUPLICADAS:',
+    'FOTOS DEFINITIVAS:',
     fotos
   )
 
   setImagenesProducto(fotos)
+  setFotoActual(0)
 }
 
   // =====================================================
-  // CARGAR VARIANTES Y FOTOS
+  // CARGAR VARIANTES Y SUS FOTOS
   // =====================================================
 
   async function cargarVariantes(
     productoId: number
   ) {
-
     const {
       data,
       error
@@ -349,7 +332,6 @@ function App() {
       .eq('producto_id', productoId)
 
     if (error) {
-
       console.error(
         'ERROR VARIANTES:',
         error
@@ -363,9 +345,7 @@ function App() {
     const variantesCargadas =
       (data || []) as Variante[]
 
-    setVariantes(
-      variantesCargadas
-    )
+    setVariantes(variantesCargadas)
 
     if (!variantesCargadas.length) {
       setImagenesVariantes({})
@@ -384,17 +364,13 @@ function App() {
       .select(
         'variante_id, image_url, orden'
       )
-      .in(
-        'variante_id',
-        ids
-      )
+      .in('variante_id', ids)
       .order(
         'orden',
         { ascending: true }
       )
 
     if (errorImagenes) {
-
       console.error(
         'ERROR IMAGENES VARIANTES:',
         errorImagenes
@@ -404,8 +380,7 @@ function App() {
       return
     }
 
-    const mapa:
-      Record<number, string[]> = {}
+    const mapa: Record<number, string[]> = {}
 
     variantesCargadas.forEach(
       variante => {
@@ -415,44 +390,33 @@ function App() {
 
     ;(imagenes || []).forEach(
       (imagen: Imagen) => {
-
         if (
           imagen.variante_id &&
           imagen.image_url?.trim()
         ) {
-
           if (
             !mapa[imagen.variante_id]
           ) {
             mapa[imagen.variante_id] = []
           }
 
-          mapa[
-            imagen.variante_id
-          ].push(
+          const foto =
             imagen.image_url.trim()
-          )
-        }
 
-      }
-    )
-
-    Object.keys(mapa).forEach(
-      id => {
-
-        mapa[Number(id)] =
-          Array.from(
-            new Set(
-              mapa[Number(id)]
+          if (
+            !mapa[imagen.variante_id].includes(
+              foto
             )
-          )
-
+          ) {
+            mapa[imagen.variante_id].push(
+              foto
+            )
+          }
+        }
       }
     )
 
-    setImagenesVariantes(
-      mapa
-    )
+    setImagenesVariantes(mapa)
   }
 
   // =====================================================
@@ -462,7 +426,6 @@ function App() {
   const abrirProducto = async (
     producto: Producto
   ) => {
-
     setProductoSeleccionado(producto)
 
     setTalleSeleccionado('')
@@ -470,9 +433,7 @@ function App() {
 
     setVariantes([])
     setImagenesVariantes({})
-
     setImagenesProducto([])
-
     setFotoActual(0)
 
     setCargandoDetalle(true)
@@ -495,10 +456,16 @@ function App() {
   const seleccionarTalle = (
     talle: string
   ) => {
-
     setTalleSeleccionado(talle)
     setColorSeleccionado('')
     setFotoActual(0)
+
+    // Volver a mostrar fotos generales
+    if (productoSeleccionado) {
+      cargarTodasLasImagenesProducto(
+        productoSeleccionado
+      )
+    }
   }
 
   // =====================================================
@@ -533,7 +500,6 @@ function App() {
   const seleccionarColor = (
     color: string
   ) => {
-
     setColorSeleccionado(color)
     setFotoActual(0)
 
@@ -555,14 +521,12 @@ function App() {
         variante.id
       ] || []
 
-    if (fotos.length > 0) {
-
-      setImagenesProducto(
-        Array.from(
-          new Set(fotos)
-        )
+    // Mostrar SOLO las fotos de esa variante
+    setImagenesProducto(
+      Array.from(
+        new Set(fotos)
       )
-    }
+    )
   }
 
   // =====================================================
@@ -572,10 +536,8 @@ function App() {
   const agregarAlCarrito = (
     producto: any
   ) => {
-
     setCarrito(
       carritoActual => {
-
         const existe =
           carritoActual.some(
             item =>
@@ -585,7 +547,6 @@ function App() {
           )
 
         if (existe) {
-
           return carritoActual.map(
             item =>
               item.id === producto.id &&
@@ -616,7 +577,6 @@ function App() {
     talle: string | null,
     color: string | null
   ) => {
-
     setCarrito(
       carritoActual =>
         carritoActual
@@ -644,7 +604,6 @@ function App() {
     talle: string | null,
     color: string | null
   ) => {
-
     setCarrito(
       carritoActual =>
         carritoActual.filter(
@@ -680,7 +639,6 @@ function App() {
   // =====================================================
 
   const comprarPorWhatsApp = () => {
-
     if (!carrito.length) {
       return
     }
@@ -692,7 +650,6 @@ function App() {
 
     carrito.forEach(
       (producto, index) => {
-
         const cantidad =
           producto.cantidad || 1
 
@@ -775,7 +732,6 @@ function App() {
   // =====================================================
 
   const fotoAnterior = () => {
-
     if (
       imagenesProducto.length <= 1
     ) {
@@ -791,7 +747,6 @@ function App() {
   }
 
   const fotoSiguiente = () => {
-
     if (
       imagenesProducto.length <= 1
     ) {
@@ -814,7 +769,6 @@ function App() {
   const manejarTouchStart = (
     e: React.TouchEvent<HTMLDivElement>
   ) => {
-
     setInicioToque(
       e.touches[0].clientX
     )
@@ -823,7 +777,6 @@ function App() {
   const manejarTouchEnd = (
     e: React.TouchEvent<HTMLDivElement>
   ) => {
-
     if (inicioToque === null) {
       return
     }
@@ -837,13 +790,11 @@ function App() {
     if (
       Math.abs(diferencia) >= 50
     ) {
-
       if (diferencia > 0) {
         fotoSiguiente()
       } else {
         fotoAnterior()
       }
-
     }
 
     setInicioToque(null)
@@ -873,11 +824,9 @@ function App() {
       />
 
       {mostrarCarrito && (
-
         <div className="carrito-lateral">
 
           <div className="carrito-header">
-
             <h2>
               🛒 Mi carrito
             </h2>
@@ -890,20 +839,15 @@ function App() {
             >
               ×
             </button>
-
           </div>
 
           {carrito.length === 0 ? (
-
             <p>
               Tu carrito está vacío
             </p>
-
           ) : (
-
             <>
               {carrito.map(producto => (
-
                 <div
                   className="item-carrito"
                   key={`${producto.id}-${producto.talle || 'sin-talle'}-${producto.color || 'sin-color'}`}
@@ -989,15 +933,12 @@ function App() {
                     </button>
 
                   </div>
-
                 </div>
-
               ))}
 
               <div className="total-carrito">
 
                 <div>
-
                   <span>
                     Total
                   </span>
@@ -1008,7 +949,6 @@ function App() {
                       'es-AR'
                     )}
                   </strong>
-
                 </div>
 
                 <button
@@ -1022,11 +962,9 @@ function App() {
 
               </div>
             </>
-
           )}
 
         </div>
-
       )}
 
       <section className="productos">
@@ -1161,6 +1099,7 @@ function App() {
         </div>
 
       </section>
+
       {/* =================================================
           DETALLE DEL PRODUCTO
       ================================================= */}
@@ -1288,8 +1227,6 @@ function App() {
 
             )}
 
-            {/* BOTÓN ANTERIOR */}
-
             {imagenesProducto.length > 1 && (
 
               <button
@@ -1315,8 +1252,6 @@ function App() {
 
             )}
 
-            {/* BOTÓN SIGUIENTE */}
-
             {imagenesProducto.length > 1 && (
 
               <button
@@ -1341,8 +1276,6 @@ function App() {
               </button>
 
             )}
-
-            {/* CONTADOR */}
 
             {imagenesProducto.length > 1 && (
 
@@ -1437,8 +1370,6 @@ function App() {
             }}
           >
 
-            {/* PRECIO */}
-
             <h2
               style={{
                 margin: '0 0 25px',
@@ -1450,8 +1381,6 @@ function App() {
                 productoSeleccionado.price
               ).toLocaleString('es-AR')}
             </h2>
-
-            {/* DESCRIPCIÓN */}
 
             {productoSeleccionado.description && (
 
@@ -1467,9 +1396,7 @@ function App() {
 
             )}
 
-            {/* =================================================
-                TALLES
-            ================================================= */}
+            {/* TALLES */}
 
             {productoSeleccionado.tiene_talle && (
 
@@ -1536,9 +1463,7 @@ function App() {
 
             )}
 
-            {/* =================================================
-                COLORES
-            ================================================= */}
+            {/* COLORES */}
 
             {productoSeleccionado.tiene_talle &&
               talleSeleccionado &&
@@ -1606,9 +1531,7 @@ function App() {
 
             )}
 
-            {/* =================================================
-                AGREGAR AL CARRITO
-            ================================================= */}
+            {/* AGREGAR AL CARRITO */}
 
             <button
               onClick={() => {
@@ -1617,11 +1540,9 @@ function App() {
                   productoSeleccionado.tiene_talle &&
                   !talleSeleccionado
                 ) {
-
                   alert(
                     'Seleccioná un talle.'
                   )
-
                   return
                 }
 
@@ -1630,11 +1551,9 @@ function App() {
                   variantes.length > 0 &&
                   !colorSeleccionado
                 ) {
-
                   alert(
                     'Seleccioná un color.'
                   )
-
                   return
                 }
 
@@ -1656,7 +1575,6 @@ function App() {
                   ''
 
                 agregarAlCarrito({
-
                   ...productoSeleccionado,
 
                   talle:
@@ -1673,7 +1591,6 @@ function App() {
                   variante_id:
                     varianteSeleccionada?.id ||
                     null
-
                 })
 
                 setTalleSeleccionado('')
