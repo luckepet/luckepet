@@ -154,7 +154,7 @@ function seleccionarFotosColor(
     setProductos(lista);
 
     await cargarImagenes(lista);
-    await cargarVariantes(lista);
+    await cargarVariantes();
 
     setCargando(false);
   }
@@ -197,7 +197,7 @@ function seleccionarFotosColor(
 
     setImagenesProducto(mapa);
   }
-async function cargarVariantes(listaProductos: Producto[]) {
+async function cargarVariantes() {
   const { data, error } = await supabase
     .from("ProductoVariantes")
     .select("*")
