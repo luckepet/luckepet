@@ -986,8 +986,7 @@ const cerrarProducto = () => {
         producto =>
           categoriaSeleccionada ===
             'Todos' ||
-          producto.category ===
-            categoriaSeleccionada
+         producto.category?.includes(categoriaSeleccionada)
       )
 
   // =====================================================

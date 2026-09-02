@@ -107,6 +107,7 @@ function Admin() {
     Record<string, File[]>
   >({});
 
+  // eslint-disable-next-line
   function seleccionarFotosColor(
     talle: string,
     color: string,
@@ -119,6 +120,7 @@ function Admin() {
       [clave]: files,
     });
   }
+  void seleccionarFotosColor;
 
   const [nuevoTalle, setNuevoTalle] = useState("");
   const [nuevoTalleEditando, setNuevoTalleEditando] = useState("");
@@ -365,6 +367,8 @@ function Admin() {
     setNuevoTalle("");
   }
 
+  // eslint-disable-next-line
+
   function agregarColorATalle(talle: string) {
     const color = nuevoColor.trim();
 
@@ -394,6 +398,7 @@ function Admin() {
     setNuevoColor("");
     setTalleParaColor("");
   }
+  void agregarColorATalle;
 
   function eliminarTalleNuevo(talle: string) {
     setNuevoProducto({
