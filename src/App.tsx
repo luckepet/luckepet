@@ -3,6 +3,7 @@ import Header from './components/header'
 import Navbar from './components/navbar'
 import Footer from './components/footer'
 import { useEffect, useState } from 'react'
+import type { TouchEvent } from 'react'
 import { supabase } from './lib/supabase'
 
 type Producto = {
@@ -38,8 +39,7 @@ function App() {
     useState<Record<number, string>>({})
 
   const [carrito, setCarrito] = useState<any[]>([])
-  const [mostrarCarrito, setMostrarCarrito] =
-    useState(false)
+  const [mostrarCarrito, setMostrarCarrito] = useState(false)
 
   const [busqueda, setBusqueda] = useState('')
   const [categoriaSeleccionada, setCategoriaSeleccionada] =
@@ -48,25 +48,16 @@ function App() {
   const [productoSeleccionado, setProductoSeleccionado] =
     useState<Producto | null>(null)
 
-  const [talleSeleccionado, setTalleSeleccionado] =
-    useState('')
+  const [talleSeleccionado, setTalleSeleccionado] = useState('')
+  const [colorSeleccionado, setColorSeleccionado] = useState('')
 
-  const [colorSeleccionado, setColorSeleccionado] =
-    useState('')
-
-  const [variantes, setVariantes] =
-    useState<Variante[]>([])
-
-  const [imagenesProducto, setImagenesProducto] =
-    useState<string[]>([])
-
+  const [variantes, setVariantes] = useState<Variante[]>([])
+  const [imagenesProducto, setImagenesProducto] = useState<string[]>([])
   const [imagenesVariantes, setImagenesVariantes] =
     useState<Record<number, string[]>>({})
 
   const [fotoActual, setFotoActual] = useState(0)
-
-  const [cargandoDetalle, setCargandoDetalle] =
-    useState(false)
+  const [cargandoDetalle, setCargandoDetalle] = useState(false)
 
   const [inicioToque, setInicioToque] =
     useState<number | null>(null)
@@ -105,7 +96,7 @@ function App() {
   }
 
   // =====================================================
-  // QUITAR FOTOS DUPLICADAS
+  // FOTOS ÚNICAS
   // =====================================================
 
   const fotosUnicas = (fotos: string[]) => {
@@ -140,6 +131,54 @@ function App() {
   }, [])
 
   // =====================================================
+  // HISTORIAL DEL NAVEGADOR
+  // =====================================================
+
+useEffect(() => {
+  // Creamos una página base dentro del historial
+  // para que el primer "atrás" nunca saque al usuario
+  // de LuckePet.
+
+  if (
+    !window.history.state?.luckepetBase
+  ) {
+    window.history.replaceState(
+      {
+        luckepetBase: true
+      },
+      '',
+      window.location.href
+    )
+  }
+
+  const manejarAtras = () => {
+    // Si estábamos viendo un producto,
+    // volvemos a mostrar la tienda.
+    if (productoSeleccionado) {
+      setProductoSeleccionado(null)
+      setTalleSeleccionado('')
+      setColorSeleccionado('')
+      setVariantes([])
+      setImagenesVariantes({})
+      setImagenesProducto([])
+      setFotoActual(0)
+    }
+  }
+
+  window.addEventListener(
+    'popstate',
+    manejarAtras
+  )
+
+  return () => {
+    window.removeEventListener(
+      'popstate',
+      manejarAtras
+    )
+  }
+}, [productoSeleccionado])
+
+  // =====================================================
   // PRODUCTOS
   // =====================================================
 
@@ -168,10 +207,6 @@ function App() {
 
   async function cargarFotosPortada() {
     const mapa: Record<number, string> = {}
-
-    // -----------------------------------------------------
-    // Primero: fotos generales
-    // -----------------------------------------------------
 
     const {
       data: generales,
@@ -204,10 +239,6 @@ function App() {
         }
       )
     }
-
-    // -----------------------------------------------------
-    // Después: fotos de variantes
-    // -----------------------------------------------------
 
     const {
       data: variantesBD,
@@ -289,7 +320,7 @@ function App() {
   }
 
   // =====================================================
-  // CARGAR TODAS LAS FOTOS DEL PRODUCTO
+  // TODAS LAS FOTOS
   // =====================================================
 
   async function cargarTodasLasImagenesProducto(
@@ -297,19 +328,11 @@ function App() {
   ) {
     let fotos: string[] = []
 
-    // -----------------------------------------------------
-    // FOTO PRINCIPAL
-    // -----------------------------------------------------
-
     if (producto.image?.trim()) {
       fotos.push(
         producto.image.trim()
       )
     }
-
-    // -----------------------------------------------------
-    // FOTOS GENERALES
-    // -----------------------------------------------------
 
     const {
       data: generales,
@@ -348,10 +371,6 @@ function App() {
         }
       )
     }
-
-    // -----------------------------------------------------
-    // TODAS LAS VARIANTES DEL PRODUCTO
-    // -----------------------------------------------------
 
     const {
       data: variantesBD,
@@ -422,24 +441,15 @@ function App() {
       }
     }
 
-    // -----------------------------------------------------
-    // ELIMINAR DUPLICADOS
-    // -----------------------------------------------------
-
     fotos =
       fotosUnicas(fotos)
-
-    console.log(
-      'FOTOS FINALES DEL PRODUCTO:',
-      fotos
-    )
 
     setImagenesProducto(fotos)
     setFotoActual(0)
   }
 
   // =====================================================
-  // CARGAR VARIANTES
+  // VARIANTES
   // =====================================================
 
   async function cargarVariantes(
@@ -475,11 +485,6 @@ function App() {
 
     const variantesCargadas =
       (data || []) as Variante[]
-
-    console.log(
-      'VARIANTES DEL PRODUCTO:',
-      variantesCargadas
-    )
 
     setVariantes(
       variantesCargadas
@@ -553,9 +558,6 @@ function App() {
       }
     )
 
-    // IMPORTANTE:
-    // quitamos duplicados DENTRO de cada variante
-
     Object.keys(mapa).forEach(
       id => {
         const varianteId =
@@ -566,11 +568,6 @@ function App() {
             mapa[varianteId]
           )
       }
-    )
-
-    console.log(
-      'MAPA DE IMAGENES:',
-      mapa
     )
 
     setImagenesVariantes(
@@ -585,24 +582,31 @@ function App() {
   const abrirProducto = async (
     producto: Producto
   ) => {
+    /*
+      Agregamos una entrada al historial.
+      Así el botón "atrás" del teléfono
+      vuelve a la tienda.
+    */
+   window.history.pushState(
+  {
+    luckepetProducto: true,
+    productoId: producto.id
+  },
+  '',
+  window.location.href
+)
+
     setProductoSeleccionado(
       producto
     )
 
     setTalleSeleccionado('')
     setColorSeleccionado('')
-
     setVariantes([])
     setImagenesVariantes({})
-
     setImagenesProducto([])
-
     setFotoActual(0)
-
     setCargandoDetalle(true)
-
-    // Cargamos TODAS las fotos
-    // antes de mostrar el detalle
 
     await cargarTodasLasImagenesProducto(
       producto
@@ -616,7 +620,28 @@ function App() {
   }
 
   // =====================================================
-  // SELECCIONAR TALLE
+  // CERRAR PRODUCTO
+  // =====================================================
+
+const cerrarProducto = () => {
+  if (
+    window.history.state?.luckepetProducto
+  ) {
+    window.history.back()
+    return
+  }
+
+  setProductoSeleccionado(null)
+  setTalleSeleccionado('')
+  setColorSeleccionado('')
+  setVariantes([])
+  setImagenesVariantes({})
+  setImagenesProducto([])
+  setFotoActual(0)
+}
+
+  // =====================================================
+  // TALLE
   // =====================================================
 
   const seleccionarTalle = (
@@ -628,9 +653,6 @@ function App() {
 
     setColorSeleccionado('')
     setFotoActual(0)
-
-    // Buscar TODAS las variantes
-    // que correspondan a este talle
 
     const variantesDelTalle =
       variantes.filter(
@@ -656,29 +678,10 @@ function App() {
       }
     )
 
-    // QUITAR DUPLICADOS
     fotosDelTalle =
       fotosUnicas(
         fotosDelTalle
       )
-
-    console.log(
-      'TALLE:',
-      talle
-    )
-
-    console.log(
-      'VARIANTES DE ESE TALLE:',
-      variantesDelTalle
-    )
-
-    console.log(
-      'FOTOS ÚNICAS DEL TALLE:',
-      fotosDelTalle
-    )
-
-    // Si hay fotos para ese talle,
-    // mostramos solamente esas.
 
     if (
       fotosDelTalle.length > 0
@@ -690,7 +693,7 @@ function App() {
   }
 
   // =====================================================
-  // COLORES DISPONIBLES
+  // COLORES
   // =====================================================
 
   const coloresDisponibles =
@@ -717,7 +720,7 @@ function App() {
       )
 
   // =====================================================
-  // SELECCIONAR COLOR
+  // COLOR
   // =====================================================
 
   const seleccionarColor = (
@@ -742,23 +745,12 @@ function App() {
       return
     }
 
-    let fotos =
-      imagenesVariantes[
-        variante.id
-      ] || []
-
-    fotos =
-      fotosUnicas(fotos)
-
-    console.log(
-      'VARIANTE SELECCIONADA:',
-      variante
-    )
-
-    console.log(
-      'FOTOS DE LA VARIANTE:',
-      fotos
-    )
+    const fotos =
+      fotosUnicas(
+        imagenesVariantes[
+          variante.id
+        ] || []
+      )
 
     setImagenesProducto(
       fotos
@@ -999,7 +991,7 @@ function App() {
       )
 
   // =====================================================
-  // FOTOS - ANTERIOR
+  // FOTOS
   // =====================================================
 
   const fotoAnterior = () => {
@@ -1018,10 +1010,6 @@ function App() {
           : actual - 1
     )
   }
-
-  // =====================================================
-  // FOTOS - SIGUIENTE
-  // =====================================================
 
   const fotoSiguiente = () => {
     if (
@@ -1046,7 +1034,7 @@ function App() {
   // =====================================================
 
   const manejarTouchStart = (
-    e: React.TouchEvent<HTMLDivElement>
+    e: TouchEvent<HTMLDivElement>
   ) => {
     setInicioToque(
       e.touches[0].clientX
@@ -1054,7 +1042,7 @@ function App() {
   }
 
   const manejarTouchEnd = (
-    e: React.TouchEvent<HTMLDivElement>
+    e: TouchEvent<HTMLDivElement>
   ) => {
     if (
       inicioToque === null
@@ -1448,736 +1436,418 @@ function App() {
       </section>
 
       {/* =================================================
-          DETALLE DEL PRODUCTO
+          PRODUCTO
       ================================================= */}
 
       {productoSeleccionado && (
 
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background:
-              '#f0ead2',
-            zIndex: 99999,
-            width: '100vw',
-            height: '100vh',
-            overflowY: 'auto'
-          }}
-        >
+        <div className="producto-overlay">
 
-          {/* CERRAR */}
+          <div className="producto-detalle">
 
-          <button
-            onClick={() => {
+            {/* CABECERA */}
 
-              setProductoSeleccionado(
-                null
-              )
-
-              setTalleSeleccionado(
-                ''
-              )
-
-              setColorSeleccionado(
-                ''
-              )
-
-              setVariantes([])
-
-              setImagenesVariantes(
-                {}
-              )
-
-              setImagenesProducto(
-                []
-              )
-
-              setFotoActual(0)
-
-            }}
-            style={{
-              position:
-                'fixed',
-              top: '15px',
-              right: '15px',
-              zIndex: 100000,
-              width: '45px',
-              height: '45px',
-              borderRadius:
-                '50%',
-              border: 'none',
-              background:
-                'rgba(255,255,255,0.9)',
-              fontSize: '30px',
-              cursor:
-                'pointer'
-            }}
-          >
-            ×
-          </button>
-
-          {/* NOMBRE */}
-
-          <h1
-            style={{
-              margin: 0,
-              padding:
-                '25px 70px 15px',
-              textAlign:
-                'center',
-              fontSize:
-                '28px'
-            }}
-          >
-            {
-              productoSeleccionado.name
-            }
-          </h1>
-
-          {/* =================================================
-              FOTOS
-          ================================================= */}
-
-          <div
-            onTouchStart={
-              manejarTouchStart
-            }
-            onTouchEnd={
-              manejarTouchEnd
-            }
-            style={{
-              width: '100%',
-              height: '65vh',
-              minHeight:
-                '300px',
-              background:
-                '#fff',
-              position:
-                'relative',
-              display:
-                'flex',
-              alignItems:
-                'center',
-              justifyContent:
-                'center',
-              overflow:
-                'hidden',
-              touchAction:
-                'pan-y'
-            }}
-          >
-
-            {cargandoDetalle ? (
-
-              <div
-                style={{
-                  color:
-                    '#999',
-                  fontSize:
-                    '16px'
-                }}
-              >
-                Cargando
-                imágenes...
-              </div>
-
-            ) : imagenesProducto.length >
-              0 ? (
-
-              <img
-                src={
-                  imagenesProducto[
-                    fotoActual
-                  ]
-                }
-                alt={
-                  productoSeleccionado.name
-                }
-                style={{
-                  width:
-                    '100%',
-                  height:
-                    '100%',
-                  objectFit:
-                    'contain',
-                  userSelect:
-                    'none',
-                  pointerEvents:
-                    'none'
-                }}
-              />
-
-            ) : (
-
-              <div
-                style={{
-                  color:
-                    '#999',
-                  fontSize:
-                    '16px'
-                }}
-              >
-                Sin imagen
-              </div>
-
-            )}
-
-            {/* ANTERIOR */}
-
-            {imagenesProducto.length >
-              1 && (
+            <div className="producto-detalle-header">
 
               <button
+                className="producto-volver"
                 onClick={
-                  fotoAnterior
+                  cerrarProducto
                 }
-                style={{
-                  position:
-                    'absolute',
-                  left:
-                    '15px',
-                  top:
-                    '50%',
-                  transform:
-                    'translateY(-50%)',
-                  border:
-                    'none',
-                  borderRadius:
-                    '50%',
-                  width:
-                    '48px',
-                  height:
-                    '48px',
-                  background:
-                    'rgba(255,255,255,0.9)',
-                  fontSize:
-                    '30px',
-                  cursor:
-                    'pointer',
-                  boxShadow:
-                    '0 2px 8px rgba(0,0,0,0.15)'
-                }}
               >
-                ‹
+                ←
               </button>
 
-            )}
-
-            {/* SIGUIENTE */}
-
-            {imagenesProducto.length >
-              1 && (
+              <span>
+                Producto
+              </span>
 
               <button
+                className="producto-cerrar"
                 onClick={
-                  fotoSiguiente
+                  cerrarProducto
                 }
-                style={{
-                  position:
-                    'absolute',
-                  right:
-                    '15px',
-                  top:
-                    '50%',
-                  transform:
-                    'translateY(-50%)',
-                  border:
-                    'none',
-                  borderRadius:
-                    '50%',
-                  width:
-                    '48px',
-                  height:
-                    '48px',
-                  background:
-                    'rgba(255,255,255,0.9)',
-                  fontSize:
-                    '30px',
-                  cursor:
-                    'pointer',
-                  boxShadow:
-                    '0 2px 8px rgba(0,0,0,0.15)'
-                }}
               >
-                ›
+                ×
               </button>
 
-            )}
+            </div>
 
-            {/* CONTADOR */}
-
-            {imagenesProducto.length >
-              1 && (
-
-              <div
-                style={{
-                  position:
-                    'absolute',
-                  bottom:
-                    '15px',
-                  left:
-                    '50%',
-                  transform:
-                    'translateX(-50%)',
-                  background:
-                    'rgba(0,0,0,0.6)',
-                  color:
-                    '#fff',
-                  padding:
-                    '6px 12px',
-                  borderRadius:
-                    '20px',
-                  fontSize:
-                    '13px'
-                }}
-              >
-                {fotoActual + 1} /{' '}
-                {
-                  imagenesProducto.length
-                }
-              </div>
-
-            )}
-
-          </div>
-
-          {/* =================================================
-              MINIATURAS
-          ================================================= */}
-
-          {imagenesProducto.length >
-            1 && (
+            {/* FOTOS */}
 
             <div
-              style={{
-                display:
-                  'flex',
-                gap:
-                  '8px',
-                padding:
-                  '12px 15px',
-                overflowX:
-                  'auto',
-                background:
-                  '#f0ead2',
-                justifyContent:
-                  'flex-start'
-              }}
+              className="producto-galeria"
+              onTouchStart={
+                manejarTouchStart
+              }
+              onTouchEnd={
+                manejarTouchEnd
+              }
             >
 
-              {imagenesProducto.map(
-                (
-                  imagen,
-                  index
-                ) => (
+              {cargandoDetalle ? (
 
+                <div className="producto-cargando">
+                  Cargando imágenes...
+                </div>
+
+              ) : imagenesProducto.length >
+                0 ? (
+
+                <img
+                  src={
+                    imagenesProducto[
+                      fotoActual
+                    ]
+                  }
+                  alt={
+                    productoSeleccionado.name
+                  }
+                  className="producto-foto-principal"
+                />
+
+              ) : (
+
+                <div className="producto-sin-imagen">
+                  Sin imagen
+                </div>
+
+              )}
+
+              {imagenesProducto.length >
+                1 && (
+
+                <>
                   <button
-                    key={`${normalizarUrl(
-                      imagen
-                    )}-${index}`}
-                    onClick={() =>
-                      setFotoActual(
-                        index
-                      )
+                    className="galeria-flecha galeria-anterior"
+                    onClick={
+                      fotoAnterior
                     }
-                    style={{
-                      padding:
-                        0,
-                      border:
-                        fotoActual ===
-                        index
-                          ? '3px solid #123622'
-                          : '2px solid transparent',
-                      borderRadius:
-                        '8px',
-                      background:
-                        'transparent',
-                      cursor:
-                        'pointer',
-                      flexShrink:
-                        0
-                    }}
                   >
-
-                    <img
-                      src={
-                        imagen
-                      }
-                      alt=""
-                      style={{
-                        width:
-                          '65px',
-                        height:
-                          '65px',
-                        objectFit:
-                          'cover',
-                        borderRadius:
-                          '6px',
-                        display:
-                          'block'
-                      }}
-                    />
-
+                    ‹
                   </button>
 
-                )
+                  <button
+                    className="galeria-flecha galeria-siguiente"
+                    onClick={
+                      fotoSiguiente
+                    }
+                  >
+                    ›
+                  </button>
+
+                  <div className="galeria-contador">
+                    {fotoActual + 1} /{' '}
+                    {
+                      imagenesProducto.length
+                    }
+                  </div>
+                </>
+
               )}
 
             </div>
 
-          )}
+            {/* MINIATURAS */}
 
-          {/* =================================================
-              INFORMACIÓN
-          ================================================= */}
+            {imagenesProducto.length >
+              1 && (
 
-          <div
-            style={{
-              padding:
-                '25px 20px 40px',
-              maxWidth:
-                '600px',
-              margin:
-                '0 auto'
-            }}
-          >
+              <div className="producto-miniaturas">
 
-            <h2
-              style={{
-                margin:
-                  '0 0 25px',
-                fontSize:
-                  '25px'
-              }}
-            >
-              $
-              {Number(
-                productoSeleccionado.price
-              ).toLocaleString(
-                'es-AR'
-              )}
-            </h2>
+                {imagenesProducto.map(
+                  (
+                    imagen,
+                    index
+                  ) => (
 
-            {productoSeleccionado.description && (
+                    <button
+                      key={`${normalizarUrl(
+                        imagen
+                      )}-${index}`}
+                      className={
+                        fotoActual ===
+                        index
+                          ? 'miniatura activa'
+                          : 'miniatura'
+                      }
+                      onClick={() =>
+                        setFotoActual(
+                          index
+                        )
+                      }
+                    >
 
-              <p
-                style={{
-                  fontSize:
-                    '16px',
-                  lineHeight:
-                    '1.6',
-                  marginBottom:
-                    '25px'
-                }}
-              >
+                      <img
+                        src={
+                          imagen
+                        }
+                        alt=""
+                      />
+
+                    </button>
+
+                  )
+                )}
+
+              </div>
+
+            )}
+
+            {/* INFORMACIÓN */}
+
+            <div className="producto-info-detalle">
+
+              <div className="producto-categoria">
+                {productoSeleccionado.category ||
+                  'Producto'}
+              </div>
+
+              <h1>
                 {
-                  productoSeleccionado.description
+                  productoSeleccionado.name
                 }
-              </p>
+              </h1>
 
-            )}
+              <div className="producto-precio">
+                $
+                {Number(
+                  productoSeleccionado.price
+                ).toLocaleString(
+                  'es-AR'
+                )}
+              </div>
 
-            {/* =================================================
-                TALLES
-            ================================================= */}
+              {productoSeleccionado.description && (
 
-            {productoSeleccionado.tiene_talle && (
+                <div className="producto-descripcion">
 
-              <div
-                style={{
-                  marginBottom:
-                    '25px'
-                }}
-              >
+                  <h3>
+                    Descripción
+                  </h3>
 
-                <p
-                  style={{
-                    fontWeight:
-                      'bold',
-                    marginBottom:
-                      '12px'
-                  }}
-                >
-                  Seleccionar
-                  talle
-                </p>
-
-                <div
-                  style={{
-                    display:
-                      'flex',
-                    flexWrap:
-                      'wrap',
-                    gap:
-                      '10px'
-                  }}
-                >
-
-                  {(
-                    productoSeleccionado.talles ||
-                    []
-                  ).map(
-                    talle => (
-
-                      <button
-                        key={
-                          talle
-                        }
-                        onClick={() =>
-                          seleccionarTalle(
-                            talle
-                          )
-                        }
-                        style={{
-                          minWidth:
-                            '55px',
-                          padding:
-                            '12px 18px',
-                          borderRadius:
-                            '10px',
-                          border:
-                            talleSeleccionado ===
-                            talle
-                              ? '2px solid #123622'
-                              : '1px solid #ccc',
-                          background:
-                            talleSeleccionado ===
-                            talle
-                              ? '#123622'
-                              : '#fff',
-                          color:
-                            talleSeleccionado ===
-                            talle
-                              ? '#fff'
-                              : '#333',
-                          fontWeight:
-                            'bold',
-                          cursor:
-                            'pointer'
-                        }}
-                      >
-                        {
-                          talle
-                        }
-                      </button>
-
-                    )
-                  )}
+                  <p>
+                    {
+                      productoSeleccionado.description
+                    }
+                  </p>
 
                 </div>
 
-              </div>
+              )}
 
-            )}
+              {/* TALLES */}
 
-            {/* =================================================
-                COLORES
-            ================================================= */}
+              {productoSeleccionado.tiene_talle && (
 
-            {productoSeleccionado.tiene_talle &&
-              talleSeleccionado &&
-              coloresDisponibles.length >
-                0 && (
+                <div className="selector-producto">
 
-              <div
-                style={{
-                  marginBottom:
-                    '25px'
-                }}
-              >
+                  <div className="selector-titulo">
+                    <strong>
+                      Talle
+                    </strong>
 
-                <p
-                  style={{
-                    fontWeight:
-                      'bold',
-                    marginBottom:
-                      '12px'
-                  }}
-                >
-                  Seleccionar
-                  color
-                </p>
+                    {talleSeleccionado && (
+                      <span>
+                        {talleSeleccionado}
+                      </span>
+                    )}
 
-                <div
-                  style={{
-                    display:
-                      'flex',
-                    flexWrap:
-                      'wrap',
-                    gap:
-                      '10px'
-                  }}
-                >
+                  </div>
 
-                  {coloresDisponibles.map(
-                    color => (
+                  <div className="opciones-producto">
 
-                      <button
-                        key={
-                          color
-                        }
-                        onClick={() =>
-                          seleccionarColor(
-                            color
-                          )
-                        }
-                        style={{
-                          padding:
-                            '12px 18px',
-                          borderRadius:
-                            '10px',
-                          border:
-                            colorSeleccionado ===
-                            color
-                              ? '2px solid #123622'
-                              : '1px solid #ccc',
-                          background:
-                            colorSeleccionado ===
-                            color
-                              ? '#123622'
-                              : '#fff',
-                          color:
-                            colorSeleccionado ===
-                            color
-                              ? '#fff'
-                              : '#333',
-                          fontWeight:
-                            'bold',
-                          cursor:
-                            'pointer'
-                        }}
-                      >
-                        {
-                          color
-                        }
-                      </button>
+                    {(
+                      productoSeleccionado.talles ||
+                      []
+                    ).map(
+                      talle => (
 
-                    )
-                  )}
+                        <button
+                          key={
+                            talle
+                          }
+                          className={
+                            talleSeleccionado ===
+                            talle
+                              ? 'opcion-producto seleccionada'
+                              : 'opcion-producto'
+                          }
+                          onClick={() =>
+                            seleccionarTalle(
+                              talle
+                            )
+                          }
+                        >
+                          {
+                            talle
+                          }
+                        </button>
+
+                      )
+                    )}
+
+                  </div>
 
                 </div>
 
+              )}
+
+              {/* COLORES */}
+
+              {productoSeleccionado.tiene_talle &&
+                talleSeleccionado &&
+                coloresDisponibles.length >
+                  0 && (
+
+                <div className="selector-producto">
+
+                  <div className="selector-titulo">
+
+                    <strong>
+                      Color
+                    </strong>
+
+                    {colorSeleccionado && (
+                      <span>
+                        {colorSeleccionado}
+                      </span>
+                    )}
+
+                  </div>
+
+                  <div className="opciones-producto">
+
+                    {coloresDisponibles.map(
+                      color => (
+
+                        <button
+                          key={
+                            color
+                          }
+                          className={
+                            colorSeleccionado ===
+                            color
+                              ? 'opcion-producto seleccionada'
+                              : 'opcion-producto'
+                          }
+                          onClick={() =>
+                            seleccionarColor(
+                              color
+                            )
+                          }
+                        >
+                          {
+                            color
+                          }
+                        </button>
+
+                      )
+                    )}
+
+                  </div>
+
+                </div>
+
+              )}
+
+              {/* STOCK */}
+
+              <div className="producto-stock">
+
+                <span className="stock-punto"></span>
+
+                {productoSeleccionado.stock >
+                0
+                  ? `Stock disponible`
+                  : `Sin stock`}
+
               </div>
 
-            )}
+            </div>
 
-            {/* =================================================
-                AGREGAR AL CARRITO
-            ================================================= */}
+            {/* BOTÓN */}
 
-            <button
-              onClick={() => {
+            <div className="producto-footer">
 
-                if (
-                  productoSeleccionado.tiene_talle &&
-                  !talleSeleccionado
-                ) {
-                  alert(
-                    'Seleccioná un talle.'
-                  )
-                  return
+              <button
+                className="producto-boton-carrito"
+                disabled={
+                  productoSeleccionado.stock <=
+                  0
                 }
+                onClick={() => {
 
-                if (
-                  productoSeleccionado.tiene_talle &&
-                  variantes.length >
-                    0 &&
-                  !colorSeleccionado
-                ) {
-                  alert(
-                    'Seleccioná un color.'
-                  )
-                  return
-                }
+                  if (
+                    productoSeleccionado.tiene_talle &&
+                    !talleSeleccionado
+                  ) {
+                    alert(
+                      'Seleccioná un talle.'
+                    )
+                    return
+                  }
 
-                const varianteSeleccionada =
-                  variantes.find(
-                    variante =>
-                      variante.talle ===
-                        talleSeleccionado &&
-                      variante.color ===
-                        colorSeleccionado
-                  )
+                  if (
+                    productoSeleccionado.tiene_talle &&
+                    variantes.length >
+                      0 &&
+                    !colorSeleccionado
+                  ) {
+                    alert(
+                      'Seleccioná un color.'
+                    )
+                    return
+                  }
 
-                const imagenCarrito =
-                  imagenesProducto[
-                    0
-                  ] ||
-                  imagenesPortada[
-                    productoSeleccionado.id
-                  ] ||
-                  productoSeleccionado.image ||
-                  ''
+                  const varianteSeleccionada =
+                    variantes.find(
+                      variante =>
+                        variante.talle ===
+                          talleSeleccionado &&
+                        variante.color ===
+                          colorSeleccionado
+                    )
 
-                agregarAlCarrito({
-                  ...productoSeleccionado,
+                  const imagenCarrito =
+                    imagenesProducto[
+                      0
+                    ] ||
+                    imagenesPortada[
+                      productoSeleccionado.id
+                    ] ||
+                    productoSeleccionado.image ||
+                    ''
 
-                  talle:
-                    talleSeleccionado ||
-                    null,
+                  agregarAlCarrito({
+                    ...productoSeleccionado,
 
-                  color:
-                    colorSeleccionado ||
-                    null,
+                    talle:
+                      talleSeleccionado ||
+                      null,
 
-                  image:
-                    imagenCarrito,
+                    color:
+                      colorSeleccionado ||
+                      null,
 
-                  variante_id:
-                    varianteSeleccionada?.id ||
-                    null
-                })
+                    image:
+                      imagenCarrito,
 
-                setTalleSeleccionado(
-                  ''
-                )
+                    variante_id:
+                      varianteSeleccionada?.id ||
+                      null
+                  })
 
-                setColorSeleccionado(
-                  ''
-                )
+                  cerrarProducto()
+                }}
+              >
+                {productoSeleccionado.stock >
+                0
+                  ? 'Agregar al carrito'
+                  : 'Sin stock'}
+              </button>
 
-                setProductoSeleccionado(
-                  null
-                )
-
-                setVariantes([])
-
-                setImagenesVariantes(
-                  {}
-                )
-
-                setImagenesProducto(
-                  []
-                )
-
-                setFotoActual(0)
-
-              }}
-              style={{
-                width:
-                  '100%',
-                padding:
-                  '17px',
-                borderRadius:
-                  '12px',
-                border:
-                  'none',
-                background:
-                  '#123622',
-                color:
-                  '#fff',
-                fontSize:
-                  '17px',
-                fontWeight:
-                  'bold',
-                cursor:
-                  'pointer'
-              }}
-            >
-              Agregar al
-              carrito
-            </button>
+            </div>
 
           </div>
 

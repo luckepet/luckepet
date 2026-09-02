@@ -8,7 +8,7 @@ type Producto = {
   description: string | null;
   price: number;
   image: string | null;
-  category: string | null;
+  category: string[] | null;
   stock: number;
   tiene_talle: boolean;
   talles: string[];
@@ -20,6 +20,7 @@ type ImagenProducto = {
   image_url: string;
   orden: number;
 };
+
 type Variante = {
   id?: number;
   producto_id: number;
@@ -39,11 +40,29 @@ const productoVacio = {
   description: "",
   price: 0,
   image: "",
-  category: "",
+  category: [] as string[],
   stock: 0,
   tiene_talle: false,
   talles: [] as string[],
 };
+
+const categoriasDisponibles = [
+  "Perros",
+  "Gatos",
+  "Higiene",
+  "Accesorios",
+];
+
+function alternarCategoria(
+  categorias: string[],
+  categoria: string
+) {
+  if (categorias.includes(categoria)) {
+    return categorias.filter((c) => c !== categoria);
+  }
+
+  return [...categorias, categoria];
+}
 
 function Admin() {
   const [productos, setProductos] = useState<Producto[]>([]);
@@ -70,39 +89,41 @@ function Admin() {
   const [imagenesSeleccionadas, setImagenesSeleccionadas] = useState<File[]>(
     []
   );
+
   const [variantes, setVariantes] = useState<Variante[]>([]);
-const [imagenesVariantes, setImagenesVariantes] = useState<
-  Record<number, ImagenVariante[]>
->({});
 
-const [nuevoColor, setNuevoColor] = useState("");
-const [talleParaColor, setTalleParaColor] = useState("");
-const [coloresPorTalle, setColoresPorTalle] = useState<
-  Record<string, string[]>
->({});
-const [fotosPorColor, setFotosPorColor] = useState<
-  Record<string, File[]>
->({});
-function seleccionarFotosColor(
-  talle: string,
-  color: string,
-  files: File[]
-) {
-  const clave = `${talle}__${color}`;
+  const [imagenesVariantes, setImagenesVariantes] = useState<
+    Record<number, ImagenVariante[]>
+  >({});
 
-  setFotosPorColor({
-    ...fotosPorColor,
-    [clave]: files,
-  });
-}
+  const [nuevoColor, setNuevoColor] = useState("");
+  const [talleParaColor, setTalleParaColor] = useState("");
+
+  const [coloresPorTalle, setColoresPorTalle] = useState<
+    Record<string, string[]>
+  >({});
+
+  const [fotosPorColor, setFotosPorColor] = useState<
+    Record<string, File[]>
+  >({});
+
+  function seleccionarFotosColor(
+    talle: string,
+    color: string,
+    files: File[]
+  ) {
+    const clave = `${talle}__${color}`;
+
+    setFotosPorColor({
+      ...fotosPorColor,
+      [clave]: files,
+    });
+  }
 
   const [nuevoTalle, setNuevoTalle] = useState("");
   const [nuevoTalleEditando, setNuevoTalleEditando] = useState("");
 
-  // =========================
   // SESIÓN
-  // =========================
-
   useEffect(() => {
     async function verificarSesion() {
       const { data } = await supabase.auth.getSession();
@@ -124,10 +145,7 @@ function seleccionarFotosColor(
     };
   }, []);
 
-  // =========================
   // CARGAR PRODUCTOS
-  // =========================
-
   useEffect(() => {
     if (sesion) {
       cargarProductos();
@@ -159,10 +177,7 @@ function seleccionarFotosColor(
     setCargando(false);
   }
 
-  // =========================
   // CARGAR IMÁGENES
-  // =========================
-
   async function cargarImagenes(listaProductos: Producto[]) {
     if (listaProductos.length === 0) {
       setImagenesProducto({});
@@ -197,69 +212,64 @@ function seleccionarFotosColor(
 
     setImagenesProducto(mapa);
   }
-async function cargarVariantes() {
-  const { data, error } = await supabase
-    .from("ProductoVariantes")
-    .select("*")
-    .order("id", { ascending: true });
 
-  if (error) {
-    console.error("ERROR AL CARGAR VARIANTES:", error);
-    return;
-  }
-
-  const variantesCargadas = (data || []) as Variante[];
-
-  setVariantes(variantesCargadas);
-
-  // =========================
-  // CARGAR FOTOS DE VARIANTES
-  // =========================
-
-  if (variantesCargadas.length === 0) {
-    setImagenesVariantes({});
-    return;
-  }
-
-  const { data: imagenes, error: errorImagenes } =
-    await supabase
-      .from("ProductoVarianteImagenes")
+  // CARGAR VARIANTES
+  async function cargarVariantes() {
+    const { data, error } = await supabase
+      .from("ProductoVariantes")
       .select("*")
-      .order("orden", { ascending: true });
+      .order("id", { ascending: true });
 
-  if (errorImagenes) {
-    console.error(
-      "ERROR AL CARGAR FOTOS DE VARIANTES:",
-      errorImagenes
-    );
-    return;
+    if (error) {
+      console.error("ERROR AL CARGAR VARIANTES:", error);
+      return;
+    }
+
+    const variantesCargadas = (data || []) as Variante[];
+
+    setVariantes(variantesCargadas);
+
+    if (variantesCargadas.length === 0) {
+      setImagenesVariantes({});
+      return;
+    }
+
+    const { data: imagenes, error: errorImagenes } =
+      await supabase
+        .from("ProductoVarianteImagenes")
+        .select("*")
+        .order("orden", { ascending: true });
+
+    if (errorImagenes) {
+      console.error(
+        "ERROR AL CARGAR FOTOS DE VARIANTES:",
+        errorImagenes
+      );
+      return;
+    }
+
+    const mapa: Record<number, ImagenVariante[]> = {};
+
+    variantesCargadas.forEach((variante) => {
+      if (variante.id) {
+        mapa[variante.id] = [];
+      }
+    });
+
+    (imagenes || []).forEach((imagen) => {
+      const imagenTipada = imagen as ImagenVariante;
+
+      if (!mapa[imagenTipada.variante_id]) {
+        mapa[imagenTipada.variante_id] = [];
+      }
+
+      mapa[imagenTipada.variante_id].push(imagenTipada);
+    });
+
+    setImagenesVariantes(mapa);
   }
 
-  const mapa: Record<number, ImagenVariante[]> = {};
-
-  variantesCargadas.forEach((variante) => {
-    if (variante.id) {
-      mapa[variante.id] = [];
-    }
-  });
-
-  (imagenes || []).forEach((imagen) => {
-    const imagenTipada = imagen as ImagenVariante;
-
-    if (!mapa[imagenTipada.variante_id]) {
-      mapa[imagenTipada.variante_id] = [];
-    }
-
-    mapa[imagenTipada.variante_id].push(imagenTipada);
-  });
-
-  setImagenesVariantes(mapa);
-}
-
-  // =========================
   // ACTUALIZACIONES EN TIEMPO REAL
-  // =========================
-
   useEffect(() => {
     if (!sesion) return;
 
@@ -299,10 +309,7 @@ async function cargarVariantes() {
     };
   }, [sesion]);
 
-  // =========================
   // LOGIN
-  // =========================
-
   async function iniciarSesion() {
     if (!email.trim() || !password) {
       alert("Ingresá email y contraseña.");
@@ -311,13 +318,18 @@ async function cargarVariantes() {
 
     setIniciandoSesion(true);
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+    const { data, error } =
+      await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
 
     if (error) {
-      console.error("ERROR AL INICIAR SESIÓN:", error);
+      console.error(
+        "ERROR AL INICIAR SESIÓN:",
+        error
+      );
+
       alert("Email o contraseña incorrectos.");
       setIniciandoSesion(false);
       return;
@@ -328,19 +340,13 @@ async function cargarVariantes() {
     setIniciandoSesion(false);
   }
 
-  // =========================
   // CERRAR SESIÓN
-  // =========================
-
   async function cerrarSesion() {
     await supabase.auth.signOut();
     setSesion(null);
   }
 
-  // =========================
   // AGREGAR TALLE NUEVO
-  // =========================
-
   function agregarTalleNuevo() {
     const talle = nuevoTalle.trim();
 
@@ -358,29 +364,36 @@ async function cargarVariantes() {
 
     setNuevoTalle("");
   }
+
   function agregarColorATalle(talle: string) {
-  const color = nuevoColor.trim();
+    const color = nuevoColor.trim();
 
-  if (!color) {
-    alert("Ingresá un color.");
-    return;
+    if (!color) {
+      alert("Ingresá un color.");
+      return;
+    }
+
+    const coloresActuales =
+      coloresPorTalle[talle] || [];
+
+    if (coloresActuales.includes(color)) {
+      alert(
+        "Ese color ya está agregado a ese talle."
+      );
+      return;
+    }
+
+    setColoresPorTalle({
+      ...coloresPorTalle,
+      [talle]: [
+        ...coloresActuales,
+        color,
+      ],
+    });
+
+    setNuevoColor("");
+    setTalleParaColor("");
   }
-
-  const coloresActuales = coloresPorTalle[talle] || [];
-
-  if (coloresActuales.includes(color)) {
-    alert("Ese color ya está agregado a ese talle.");
-    return;
-  }
-
-  setColoresPorTalle({
-    ...coloresPorTalle,
-    [talle]: [...coloresActuales, color],
-  });
-
-  setNuevoColor("");
-  setTalleParaColor("");
-}
 
   function eliminarTalleNuevo(talle: string) {
     setNuevoProducto({
@@ -391,10 +404,7 @@ async function cargarVariantes() {
     });
   }
 
-  // =========================
   // AGREGAR TALLE EDITANDO
-  // =========================
-
   function agregarTalleEditando() {
     if (!editando) return;
 
@@ -409,7 +419,10 @@ async function cargarVariantes() {
 
     setEditando({
       ...editando,
-      talles: [...editando.talles, talle],
+      talles: [
+        ...editando.talles,
+        talle,
+      ],
     });
 
     setNuevoTalleEditando("");
@@ -426,311 +439,307 @@ async function cargarVariantes() {
     });
   }
 
-  // =========================
   // SUBIR IMÁGENES
-  // =========================
+  async function subirImagenes(
+    files: File[],
+    productoId: number,
+    ordenInicial: number
+  ) {
+    const urls: string[] = [];
 
-async function subirImagenes(
-  files: File[],
-  productoId: number,
-  ordenInicial: number
-) {
-  const urls: string[] = [];
+    if (!files || files.length === 0) {
+      return urls;
+    }
 
-  if (!files || files.length === 0) {
+    setSubiendoImagen(true);
+
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+
+        if (!file.type.startsWith("image/")) {
+          alert(
+            `${file.name} no es una imagen válida.`
+          );
+          continue;
+        }
+
+        const extension =
+          file.name
+            .split(".")
+            .pop()
+            ?.toLowerCase() || "jpg";
+
+        const nombreArchivo =
+          `${productoId}-${Date.now()}-${i}-${Math.random()
+            .toString(36)
+            .substring(2, 8)}.${extension}`;
+
+        const { error: errorStorage } =
+          await supabase.storage
+            .from("PRODUCTOS")
+            .upload(
+              nombreArchivo,
+              file,
+              {
+                cacheControl: "3600",
+                upsert: false,
+              }
+            );
+
+        if (errorStorage) {
+          console.error(
+            "ERROR STORAGE:",
+            errorStorage
+          );
+
+          alert(
+            `Error al subir "${file.name}": ${errorStorage.message}`
+          );
+
+          continue;
+        }
+
+        const { data: publicUrlData } =
+          supabase.storage
+            .from("PRODUCTOS")
+            .getPublicUrl(
+              nombreArchivo
+            );
+
+        const url =
+          publicUrlData.publicUrl;
+
+        if (!url) {
+          alert(
+            `No se pudo obtener la URL de ${file.name}.`
+          );
+          continue;
+        }
+
+        const { error: errorBD } =
+          await supabase
+            .from("ProductoImagenes")
+            .insert({
+              producto_id: productoId,
+              image_url: url,
+              orden: ordenInicial + i,
+            });
+
+        if (errorBD) {
+          console.error(
+            "ERROR ProductoImagenes:",
+            errorBD
+          );
+
+          alert(
+            `La imagen "${file.name}" se subió, pero no se pudo guardar en la base de datos: ${errorBD.message}`
+          );
+
+          continue;
+        }
+
+        urls.push(url);
+      }
+    } finally {
+      setSubiendoImagen(false);
+    }
+
     return urls;
   }
 
-  setSubiendoImagen(true);
+  async function subirImagenesDeVariante(
+    files: File[],
+    varianteId: number
+  ) {
+    if (!files || files.length === 0) return;
 
-  try {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
 
       if (!file.type.startsWith("image/")) {
-        alert(`${file.name} no es una imagen válida.`);
         continue;
       }
 
       const extension =
-        file.name.split(".").pop()?.toLowerCase() || "jpg";
+        file.name
+          .split(".")
+          .pop()
+          ?.toLowerCase() || "jpg";
 
       const nombreArchivo =
-        `${productoId}-${Date.now()}-${i}-${Math.random()
+        `variante-${varianteId}-${Date.now()}-${i}-${Math.random()
           .toString(36)
           .substring(2, 8)}.${extension}`;
 
-      // SUBIR AL STORAGE
-      const { error: errorStorage } = await supabase.storage
-        .from("PRODUCTOS")
-        .upload(nombreArchivo, file, {
-          cacheControl: "3600",
-          upsert: false,
-        });
+      const { error: errorStorage } =
+        await supabase.storage
+          .from("PRODUCTOS")
+          .upload(
+            nombreArchivo,
+            file,
+            {
+              cacheControl: "3600",
+              upsert: false,
+            }
+          );
 
       if (errorStorage) {
         console.error(
-          "ERROR STORAGE:",
+          "ERROR AL SUBIR FOTO DE VARIANTE:",
           errorStorage
         );
-
-        alert(
-          `Error al subir "${file.name}": ${errorStorage.message}`
-        );
-
         continue;
       }
 
-      // OBTENER URL PÚBLICA
       const { data: publicUrlData } =
         supabase.storage
           .from("PRODUCTOS")
-          .getPublicUrl(nombreArchivo);
+          .getPublicUrl(
+            nombreArchivo
+          );
 
-      const url = publicUrlData.publicUrl;
+      const url =
+        publicUrlData.publicUrl;
 
-      if (!url) {
-        alert(`No se pudo obtener la URL de ${file.name}.`);
-        continue;
-      }
+      if (!url) continue;
 
-      // GUARDAR EN ProductoImagenes
-      const { error: errorBD } = await supabase
-        .from("ProductoImagenes")
-        .insert({
-          producto_id: productoId,
-          image_url: url,
-          orden: ordenInicial + i,
-        });
+      const { error: errorBD } =
+        await supabase
+          .from("ProductoVarianteImagenes")
+          .insert({
+            variante_id: varianteId,
+            image_url: url,
+            orden: i,
+          });
 
       if (errorBD) {
         console.error(
-          "ERROR ProductoImagenes:",
+          "ERROR AL GUARDAR FOTO DE VARIANTE:",
           errorBD
         );
-
-        alert(
-          `La imagen "${file.name}" se subió, pero no se pudo guardar en la base de datos: ${errorBD.message}`
-        );
-
-        continue;
       }
-
-      urls.push(url);
-    }
-  } finally {
-    setSubiendoImagen(false);
-  }
-
-  return urls;
-}
-async function subirImagenesDeVariante(
-  files: File[],
-  varianteId: number
-) {
-  if (!files || files.length === 0) return;
-
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-
-    if (!file.type.startsWith("image/")) {
-      continue;
-    }
-
-    const extension =
-      file.name.split(".").pop()?.toLowerCase() || "jpg";
-
-    const nombreArchivo =
-      `variante-${varianteId}-${Date.now()}-${i}-${Math.random()
-        .toString(36)
-        .substring(2, 8)}.${extension}`;
-
-    const { error: errorStorage } = await supabase.storage
-      .from("PRODUCTOS")
-      .upload(nombreArchivo, file, {
-        cacheControl: "3600",
-        upsert: false,
-      });
-
-    if (errorStorage) {
-      console.error(
-        "ERROR AL SUBIR FOTO DE VARIANTE:",
-        errorStorage
-      );
-      continue;
-    }
-
-    const { data: publicUrlData } = supabase.storage
-      .from("PRODUCTOS")
-      .getPublicUrl(nombreArchivo);
-
-    const url = publicUrlData.publicUrl;
-
-    if (!url) continue;
-
-    const { error: errorBD } = await supabase
-      .from("ProductoVarianteImagenes")
-      .insert({
-        variante_id: varianteId,
-        image_url: url,
-        orden: i,
-      });
-
-    if (errorBD) {
-      console.error(
-        "ERROR AL GUARDAR FOTO DE VARIANTE:",
-        errorBD
-      );
     }
   }
-}
 
-  // =========================
   // CREAR PRODUCTO
-  // =========================
-
   async function crearProducto() {
-  if (!nuevoProducto.name.trim()) {
-    alert("El producto necesita un nombre.");
-    return;
-  }
+    if (!nuevoProducto.name.trim()) {
+      alert("El producto necesita un nombre.");
+      return;
+    }
 
-  if (nuevoProducto.price < 0) {
-    alert("El precio no puede ser negativo.");
-    return;
-  }
+    if (nuevoProducto.price < 0) {
+      alert("El precio no puede ser negativo.");
+      return;
+    }
 
-  if (nuevoProducto.stock < 0) {
-    alert("El stock no puede ser negativo.");
-    return;
-  }
+    if (nuevoProducto.stock < 0) {
+      alert("El stock no puede ser negativo.");
+      return;
+    }
 
-  setGuardando(true);
+    setGuardando(true);
 
-  try {
-    // =========================
-    // CREAR PRODUCTO
-    // =========================
-
-    const { data: productoCreado, error } =
-      await supabase
+    try {
+      const {
+        data: productoCreado,
+        error,
+      } = await supabase
         .from("Productos")
         .insert({
           name: nuevoProducto.name.trim(),
-          description: nuevoProducto.description.trim(),
-          price: Number(nuevoProducto.price),
+          description:
+            nuevoProducto.description.trim(),
+          price: Number(
+            nuevoProducto.price
+          ),
           image: "",
-          category: nuevoProducto.category.trim(),
-          stock: Number(nuevoProducto.stock),
-          tiene_talle: nuevoProducto.tiene_talle,
-          talles: nuevoProducto.tiene_talle
-            ? nuevoProducto.talles
-            : [],
+          category:
+            nuevoProducto.category,
+          stock: Number(
+            nuevoProducto.stock
+          ),
+          tiene_talle:
+            nuevoProducto.tiene_talle,
+          talles:
+            nuevoProducto.tiene_talle
+              ? nuevoProducto.talles
+              : [],
         })
         .select()
         .single();
 
-    if (error || !productoCreado) {
-      console.error("ERROR AL CREAR:", error);
+      if (error || !productoCreado) {
+        console.error(
+          "ERROR AL CREAR:",
+          error
+        );
 
-      alert(
-        `No se pudo crear el producto:\n\n${
-          error?.message ||
-          "No se recibió información de Supabase"
-        }`
-      );
+        alert(
+          `No se pudo crear el producto:\n\n${
+            error?.message ||
+            "No se recibió información de Supabase"
+          }`
+        );
 
-      return;
-    }
+        return;
+      }
 
-    // =========================
-    // SUBIR IMÁGENES PRINCIPALES
-    // =========================
+      let urls: string[] = [];
 
-    let urls: string[] = [];
+      if (
+        imagenesSeleccionadas.length > 0
+      ) {
+        urls = await subirImagenes(
+          imagenesSeleccionadas,
+          productoCreado.id,
+          0
+        );
+      }
 
-    if (imagenesSeleccionadas.length > 0) {
-      urls = await subirImagenes(
-        imagenesSeleccionadas,
-        productoCreado.id,
-        0
-      );
-    }
-
-    // =========================
-    // GUARDAR IMAGEN PRINCIPAL
-    // =========================
-
-    if (urls.length > 0) {
-      const { error: errorPrincipal } =
-        await supabase
+      if (urls.length > 0) {
+        const {
+          error: errorPrincipal,
+        } = await supabase
           .from("Productos")
           .update({
             image: urls[0],
           })
-          .eq("id", productoCreado.id);
+          .eq(
+            "id",
+            productoCreado.id
+          );
 
-      if (errorPrincipal) {
-        console.error(
-          "ERROR AL GUARDAR IMAGEN PRINCIPAL:",
-          errorPrincipal
-        );
+        if (errorPrincipal) {
+          console.error(
+            "ERROR AL GUARDAR IMAGEN PRINCIPAL:",
+            errorPrincipal
+          );
+        }
       }
-    }
 
-   // =========================
-// GUARDAR VARIANTES
-// =========================
-
-for (const talle of nuevoProducto.talles) {
-  const colores = coloresPorTalle[talle] || [];
-
-  for (const color of colores) {
-    const { data: varianteCreada, error: errorVariante } =
-      await supabase
-        .from("ProductoVariantes")
-        .insert({
-          producto_id: productoCreado.id,
-          talle,
-          color,
-        })
-        .select()
-        .single();
-
-    if (errorVariante || !varianteCreada) {
-      console.error(
-        "ERROR AL CREAR VARIANTE:",
-        errorVariante
-      );
-      continue;
-    }
-
-    const clave = `${talle}__${color}`;
-    const fotos = fotosPorColor[clave] || [];
-
-    if (fotos.length > 0) {
-      await subirImagenesDeVariante(
-        fotos,
-        varianteCreada.id
-      );
-    }
-  }
-}
-    if (nuevoProducto.tiene_talle) {
-      for (const talle of nuevoProducto.talles) {
+      // Preserve the existing
+      // variant creation loops.
+      for (
+        const talle of nuevoProducto.talles
+      ) {
         const colores =
           coloresPorTalle[talle] || [];
 
-        for (const color of colores) {
+        for (
+          const color of colores
+        ) {
           const {
             data: varianteCreada,
             error: errorVariante,
           } = await supabase
             .from("ProductoVariantes")
             .insert({
-              producto_id: productoCreado.id,
-              talle: talle,
-              color: color,
+              producto_id:
+                productoCreado.id,
+              talle,
+              color,
             })
             .select()
             .single();
@@ -743,13 +752,8 @@ for (const talle of nuevoProducto.talles) {
               "ERROR AL CREAR VARIANTE:",
               errorVariante
             );
-
             continue;
           }
-
-          // =========================
-          // FOTOS DE LA VARIANTE
-          // =========================
 
           const clave =
             `${talle}__${color}`;
@@ -760,93 +764,156 @@ for (const talle of nuevoProducto.talles) {
           if (fotos.length > 0) {
             await subirImagenesDeVariante(
               fotos,
-              varianteCreada.id!
+              varianteCreada.id
             );
           }
         }
       }
+
+      if (nuevoProducto.tiene_talle) {
+        for (
+          const talle of nuevoProducto.talles
+        ) {
+          const colores =
+            coloresPorTalle[talle] || [];
+
+          for (
+            const color of colores
+          ) {
+            const {
+              data: varianteCreada,
+              error: errorVariante,
+            } = await supabase
+              .from("ProductoVariantes")
+              .insert({
+                producto_id:
+                  productoCreado.id,
+                talle: talle,
+                color: color,
+              })
+              .select()
+              .single();
+
+            if (
+              errorVariante ||
+              !varianteCreada
+            ) {
+              console.error(
+                "ERROR AL CREAR VARIANTE:",
+                errorVariante
+              );
+
+              continue;
+            }
+
+            const clave =
+              `${talle}__${color}`;
+
+            const fotos =
+              fotosPorColor[clave] || [];
+
+            if (fotos.length > 0) {
+              await subirImagenesDeVariante(
+                fotos,
+                varianteCreada.id!
+              );
+            }
+          }
+        }
+      }
+
+      alert(
+        "Producto creado correctamente ✅"
+      );
+
+      setNuevoProducto({
+        ...productoVacio,
+        talles: [],
+      });
+
+      setImagenesSeleccionadas([]);
+      setNuevoTalle("");
+      setNuevoColor("");
+      setTalleParaColor("");
+      setColoresPorTalle({});
+      setFotosPorColor({});
+      setMostrarNuevo(false);
+    } finally {
+      setGuardando(false);
+      await cargarProductos();
     }
-
-    // =========================
-    // LIMPIAR
-    // =========================
-
-    alert("Producto creado correctamente ✅");
-
-    setNuevoProducto({
-      ...productoVacio,
-      talles: [],
-    });
-
-    setImagenesSeleccionadas([]);
-    setNuevoTalle("");
-    setNuevoColor("");
-    setTalleParaColor("");
-    setColoresPorTalle({});
-    setFotosPorColor({});
-    setMostrarNuevo(false);
-
-  } finally {
-    setGuardando(false);
-    await cargarProductos();
   }
-}
 
-  // =========================
   // ELIMINAR IMAGEN
-  // =========================
-
-  async function eliminarImagen(imagen: ImagenProducto) {
-    const confirmar = window.confirm(
-      "¿Querés eliminar esta imagen?"
-    );
+  async function eliminarImagen(
+    imagen: ImagenProducto
+  ) {
+    const confirmar =
+      window.confirm(
+        "¿Querés eliminar esta imagen?"
+      );
 
     if (!confirmar) return;
 
     if (imagen.id) {
-      const { error } = await supabase
-       .from("producto_imagenes")
-        .delete()
-        .eq("id", imagen.id);
+      const { error } =
+        await supabase
+          .from("producto_imagenes")
+          .delete()
+          .eq("id", imagen.id);
 
       if (error) {
-        console.error("ERROR AL ELIMINAR IMAGEN:", error);
-        alert("No se pudo eliminar la imagen.");
+        console.error(
+          "ERROR AL ELIMINAR IMAGEN:",
+          error
+        );
+        alert(
+          "No se pudo eliminar la imagen."
+        );
         return;
       }
     }
 
-    // Si era la imagen principal, buscar otra imagen
-    const producto = productos.find(
-      (p) => p.id === imagen.producto_id
-    );
+    const producto =
+      productos.find(
+        (p) =>
+          p.id ===
+          imagen.producto_id
+      );
 
-    if (producto?.image === imagen.image_url) {
+    if (
+      producto?.image ===
+      imagen.image_url
+    ) {
       const restantes =
-        imagenesProducto[imagen.producto_id]?.filter(
-          (img) => img.id !== imagen.id
+        imagenesProducto[
+          imagen.producto_id
+        ]?.filter(
+          (img) =>
+            img.id !== imagen.id
         ) || [];
 
       const nuevaPrincipal =
         restantes.length > 0
-          ? restantes[0].image_url
+          ? restantes[0]
+              .image_url
           : "";
 
       await supabase
         .from("Productos")
         .update({
-          image: nuevaPrincipal,
+          image:
+            nuevaPrincipal,
         })
-        .eq("id", imagen.producto_id);
+        .eq(
+          "id",
+          imagen.producto_id
+        );
     }
 
     await cargarProductos();
   }
-
-  // =========================
   // EDITAR PRODUCTO
-  // =========================
-
   async function guardarCambios() {
     if (!editando) return;
 
@@ -872,87 +939,124 @@ for (const talle of nuevoProducto.talles) {
         .from("Productos")
         .update({
           name: editando.name.trim(),
-          description: editando.description?.trim() || "",
+          description:
+            editando.description?.trim() || "",
           price: Number(editando.price),
-          image: editando.image?.trim() || "",
-          category: editando.category?.trim() || "",
+          image:
+            editando.image?.trim() || "",
+          category:
+            editando.category || [],
           stock: Number(editando.stock),
-          tiene_talle: editando.tiene_talle,
-          talles: editando.tiene_talle
-            ? editando.talles
-            : [],
+          tiene_talle:
+            editando.tiene_talle,
+          talles:
+            editando.tiene_talle
+              ? editando.talles
+              : [],
         })
         .eq("id", editando.id);
 
       if (error) {
-        console.error("ERROR AL ACTUALIZAR:", error);
-        alert("No se pudo guardar el producto.");
+        console.error(
+          "ERROR AL ACTUALIZAR:",
+          error
+        );
+        alert(
+          "No se pudo guardar el producto."
+        );
         return;
       }
-      // =========================
-// GUARDAR VARIANTES NUEVAS
-// =========================
 
-const variantesDelProducto = variantes.filter(
-  (variante) =>
-    variante.producto_id === editando.id &&
-    variante.id === undefined
-);
-
-for (const variante of variantesDelProducto) {
-  const { data: varianteCreada, error: errorVariante } =
-    await supabase
-      .from("ProductoVariantes")
-      .insert({
-        producto_id: editando.id,
-        talle: variante.talle,
-        color: variante.color,
-      })
-      .select()
-      .single();
-
-  if (errorVariante || !varianteCreada) {
-    console.error(
-      "ERROR AL GUARDAR VARIANTE:",
-      errorVariante
-    );
-    continue;
-  }
-  const clave = `${variante.talle}__${variante.color}`;
-const fotos = fotosPorColor[clave] || [];
-
-if (fotos.length > 0) {
-  await subirImagenesDeVariante(
-    fotos,
-    varianteCreada.id
-  );
-}
-}
-
-      // Agregar nuevas imágenes
-      if (imagenesSeleccionadas.length > 0) {
-        const imagenesActuales =
-          imagenesProducto[editando.id] || [];
-
-        const ordenInicial = imagenesActuales.length;
-
-        const urlsNuevas = await subirImagenes(
-          imagenesSeleccionadas,
-          editando.id,
-          ordenInicial
+      const variantesDelProducto =
+        variantes.filter(
+          (variante) =>
+            variante.producto_id ===
+              editando.id &&
+            variante.id === undefined
         );
 
-        if (!editando.image && urlsNuevas.length > 0) {
-          await supabase
-            .from("Productos")
-            .update({
-              image: urlsNuevas[0],
-            })
-            .eq("id", editando.id);
+      for (
+        const variante of variantesDelProducto
+      ) {
+        const {
+          data: varianteCreada,
+          error: errorVariante,
+        } = await supabase
+          .from("ProductoVariantes")
+          .insert({
+            producto_id:
+              editando.id,
+            talle:
+              variante.talle,
+            color:
+              variante.color,
+          })
+          .select()
+          .single();
+
+        if (
+          errorVariante ||
+          !varianteCreada
+        ) {
+          console.error(
+            "ERROR AL GUARDAR VARIANTE:",
+            errorVariante
+          );
+          continue;
+        }
+
+        const clave =
+          `${variante.talle}__${variante.color}`;
+
+        const fotos =
+          fotosPorColor[clave] || [];
+
+        if (fotos.length > 0) {
+          await subirImagenesDeVariante(
+            fotos,
+            varianteCreada.id
+          );
         }
       }
 
-      alert("Producto actualizado correctamente ✅");
+      if (
+        imagenesSeleccionadas.length > 0
+      ) {
+        const imagenesActuales =
+          imagenesProducto[
+            editando.id
+          ] || [];
+
+        const ordenInicial =
+          imagenesActuales.length;
+
+        const urlsNuevas =
+          await subirImagenes(
+            imagenesSeleccionadas,
+            editando.id,
+            ordenInicial
+          );
+
+        if (
+          !editando.image &&
+          urlsNuevas.length > 0
+        ) {
+          await supabase
+            .from("Productos")
+            .update({
+              image:
+                urlsNuevas[0],
+            })
+            .eq(
+              "id",
+              editando.id
+            );
+        }
+      }
+
+      alert(
+        "Producto actualizado correctamente ✅"
+      );
 
       setEditando(null);
       setImagenesSeleccionadas([]);
@@ -963,21 +1067,26 @@ if (fotos.length > 0) {
     }
   }
 
-  // =========================
   // ELIMINAR PRODUCTO
-  // =========================
-
-  async function eliminarProducto(id: number) {
-    const confirmar = window.confirm(
-      "¿Seguro que querés eliminar este producto?"
-    );
+  async function eliminarProducto(
+    id: number
+  ) {
+    const confirmar =
+      window.confirm(
+        "¿Seguro que querés eliminar este producto?"
+      );
 
     if (!confirmar) return;
 
-    const { error: errorImagenes } = await supabase
+    const {
+      error: errorImagenes,
+    } = await supabase
       .from("ProductoImagenes")
       .delete()
-      .eq("producto_id", id);
+      .eq(
+        "producto_id",
+        id
+      );
 
     if (errorImagenes) {
       console.error(
@@ -986,65 +1095,92 @@ if (fotos.length > 0) {
       );
     }
 
-    const { error } = await supabase
-      .from("Productos")
-      .delete()
-      .eq("id", id);
+    const { error } =
+      await supabase
+        .from("Productos")
+        .delete()
+        .eq("id", id);
 
     if (error) {
-      console.error("ERROR AL ELIMINAR:", error);
-      alert("No se pudo eliminar el producto.");
+      console.error(
+        "ERROR AL ELIMINAR:",
+        error
+      );
+      alert(
+        "No se pudo eliminar el producto."
+      );
       return;
     }
 
-    alert("Producto eliminado 🗑️");
+    alert(
+      "Producto eliminado 🗑️"
+    );
 
     await cargarProductos();
   }
 
-  // =========================
   // BUSCADOR
-  // =========================
+  const productosFiltrados =
+    useMemo(() => {
+      const texto =
+        busqueda
+          .toLowerCase()
+          .trim();
 
-  const productosFiltrados = useMemo(() => {
-    const texto = busqueda.toLowerCase().trim();
+      if (!texto)
+        return productos;
 
-    if (!texto) return productos;
+      return productos.filter(
+        (producto) => {
+          const categorias =
+            producto.category || [];
 
-    return productos.filter((producto) =>
-      [
-        producto.name,
-        producto.description,
-        producto.category,
-      ]
-        .filter(Boolean)
-        .some((valor) =>
-          String(valor).toLowerCase().includes(texto)
-        )
-    );
-  }, [productos, busqueda]);
+          return (
+            producto.name
+              .toLowerCase()
+              .includes(texto) ||
+            (
+              producto.description ||
+              ""
+            )
+              .toLowerCase()
+              .includes(texto) ||
+            categorias.some(
+              (categoria) =>
+                categoria
+                  .toLowerCase()
+                  .includes(texto)
+            )
+          );
+        }
+      );
+    }, [
+      productos,
+      busqueda,
+    ]);
 
-  // =========================
   // PRECIO
-  // =========================
-
-  function formatoPrecio(precio: number) {
-    return new Intl.NumberFormat("es-AR").format(precio);
+  function formatoPrecio(
+    precio: number
+  ) {
+    return new Intl.NumberFormat(
+      "es-AR"
+    ).format(precio);
   }
 
-  // =========================
   // CARGANDO SESIÓN
-  // =========================
-
   if (cargandoSesion) {
     return (
       <div
         style={{
           minHeight: "100vh",
           display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontFamily: "Arial, sans-serif",
+          alignItems:
+            "center",
+          justifyContent:
+            "center",
+          fontFamily:
+            "Arial, sans-serif",
         }}
       >
         Verificando acceso...
@@ -1052,39 +1188,52 @@ if (fotos.length > 0) {
     );
   }
 
-  // =========================
   // LOGIN
-  // =========================
-
   if (!sesion) {
     return (
       <div
         style={{
           minHeight: "100vh",
-          background: "#f5f6f3",
+          background:
+            "#f5f6f3",
           display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          alignItems:
+            "center",
+          justifyContent:
+            "center",
           padding: "20px",
-          fontFamily: "Arial, sans-serif",
+          fontFamily:
+            "Arial, sans-serif",
         }}
       >
         <div
           style={{
-            background: "white",
+            background:
+              "white",
             width: "100%",
-            maxWidth: "400px",
-            padding: "35px",
-            borderRadius: "20px",
+            maxWidth:
+              "400px",
+            padding:
+              "35px",
+            borderRadius:
+              "20px",
             boxShadow:
               "0 3px 20px rgba(0,0,0,0.08)",
           }}
         >
-          <h1 style={{ marginTop: 0 }}>
+          <h1
+            style={{
+              marginTop: 0,
+            }}
+          >
             LuckePet 🐾
           </h1>
 
-          <p style={{ color: "#777" }}>
+          <p
+            style={{
+              color: "#777",
+            }}
+          >
             Panel de administración
           </p>
 
@@ -1093,7 +1242,9 @@ if (fotos.length > 0) {
             placeholder="Email"
             value={email}
             onChange={(e) =>
-              setEmail(e.target.value)
+              setEmail(
+                e.target.value
+              )
             }
             style={inputStyle}
           />
@@ -1103,10 +1254,15 @@ if (fotos.length > 0) {
             placeholder="Contraseña"
             value={password}
             onChange={(e) =>
-              setPassword(e.target.value)
+              setPassword(
+                e.target.value
+              )
             }
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
+              if (
+                e.key ===
+                "Enter"
+              ) {
                 iniciarSesion();
               }
             }}
@@ -1114,8 +1270,12 @@ if (fotos.length > 0) {
           />
 
           <button
-            onClick={iniciarSesion}
-            disabled={iniciandoSesion}
+            onClick={
+              iniciarSesion
+            }
+            disabled={
+              iniciandoSesion
+            }
             style={{
               ...primaryButton,
               width: "100%",
@@ -1131,300 +1291,426 @@ if (fotos.length > 0) {
     );
   }
 
-  // =========================
   // PANEL
-  // =========================
-
   return (
     <div
       style={{
         minHeight: "100vh",
-        background: "#f5f6f3",
+        background:
+          "#f5f6f3",
         padding: "30px",
-        fontFamily: "Arial, sans-serif",
+        fontFamily:
+          "Arial, sans-serif",
         color: "#222",
       }}
     >
       <div
         style={{
-          maxWidth: "1200px",
-          margin: "0 auto",
+          maxWidth:
+            "1200px",
+          margin:
+            "0 auto",
         }}
       >
         {/* HEADER */}
-
         <div
           style={{
-            background: "#ffffff",
-            borderRadius: "18px",
-            padding: "25px",
-            marginBottom: "25px",
+            display: "flex",
+            justifyContent:
+              "space-between",
+            alignItems:
+              "center",
+            gap: "15px",
+            marginBottom:
+              "25px",
+            flexWrap:
+              "wrap",
+          }}
+        >
+          <div>
+            <h1
+              style={{
+                margin:
+                  "0 0 5px",
+                color:
+                  "#263d2d",
+              }}
+            >
+              LuckePet 🐾
+            </h1>
+
+            <p
+              style={{
+                margin: 0,
+                color:
+                  "#777",
+              }}
+            >
+              Panel de administración
+            </p>
+          </div>
+
+          <button
+            onClick={
+              cerrarSesion
+            }
+            style={
+              secondaryButton
+            }
+          >
+            Cerrar sesión
+          </button>
+        </div>
+
+        {/* ESTADÍSTICAS */}
+        <div
+          style={{
+            display:
+              "grid",
+            gridTemplateColumns:
+              "repeat(auto-fit, minmax(180px, 1fr))",
+            gap: "15px",
+            marginBottom:
+              "25px",
+          }}
+        >
+          <div
+            style={
+              statCard
+            }
+          >
+            <strong>
+              Productos
+            </strong>
+
+            <div
+              style={{
+                fontSize:
+                  "28px",
+                fontWeight:
+                  "bold",
+                marginTop:
+                  "8px",
+                color:
+                  "#263d2d",
+              }}
+            >
+              {
+                productos.length
+              }
+            </div>
+          </div>
+
+          <div
+            style={
+              statCard
+            }
+          >
+            <strong>
+              Stock total
+            </strong>
+
+            <div
+              style={{
+                fontSize:
+                  "28px",
+                fontWeight:
+                  "bold",
+                marginTop:
+                  "8px",
+                color:
+                  "#263d2d",
+              }}
+            >
+              {productos.reduce(
+                (
+                  total,
+                  producto
+                ) =>
+                  total +
+                  (Number(
+                    producto.stock
+                  ) || 0),
+                0
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* NUEVO PRODUCTO */}
+        <div
+          style={{
+            background:
+              "white",
+            padding:
+              "20px",
+            borderRadius:
+              "18px",
+            marginBottom:
+              "20px",
             boxShadow:
               "0 3px 15px rgba(0,0,0,0.06)",
           }}
         >
           <div
             style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: "15px",
-              flexWrap: "wrap",
+              display:
+                "flex",
+              justifyContent:
+                "space-between",
+              alignItems:
+                "center",
+              gap: "10px",
+              flexWrap:
+                "wrap",
             }}
           >
-            <div>
-              <h1
-                style={{
-                  margin: 0,
-                  fontSize: "28px",
-                }}
-              >
-                LuckePet 🐾
-              </h1>
-
-              <p
-                style={{
-                  margin: "7px 0 0",
-                  color: "#777",
-                }}
-              >
-                Panel de administración
-              </p>
-            </div>
-
-            <div
+            <h2
               style={{
-                display: "flex",
-                gap: "10px",
-                flexWrap: "wrap",
+                margin:
+                  0,
+                fontSize:
+                  "20px",
               }}
             >
-              <button
-                onClick={() => {
-                  setMostrarNuevo(!mostrarNuevo);
-                  setEditando(null);
-                  setImagenesSeleccionadas([]);
-                  setNuevoTalle("");
-                }}
-                style={primaryButton}
-              >
-                {mostrarNuevo
-                  ? "✕ Cerrar"
-                  : "＋ Nuevo producto"}
-              </button>
-
-              <button
-                onClick={cerrarSesion}
-                style={secondaryButton}
-              >
-                🔒 Cerrar sesión
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* ESTADÍSTICAS */}
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns:
-              "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: "15px",
-            marginBottom: "25px",
-          }}
-        >
-          <div style={statCard}>
-            <small style={{ color: "#777" }}>
-              Productos
-            </small>
-
-            <h2 style={{ margin: "5px 0 0" }}>
-              {productos.length}
+              Agregar producto
             </h2>
-          </div>
 
-          <div style={statCard}>
-            <small style={{ color: "#777" }}>
-              Unidades en stock
-            </small>
+            <button
+              onClick={() => {
+                setMostrarNuevo(
+                  !mostrarNuevo
+                );
 
-            <h2 style={{ margin: "5px 0 0" }}>
-              {productos.reduce(
-                (total, producto) =>
-                  total +
-                  Number(producto.stock || 0),
-                0
-              )}
-            </h2>
-          </div>
-
-          <div style={statCard}>
-            <small style={{ color: "#777" }}>
-              Sin stock
-            </small>
-
-            <h2 style={{ margin: "5px 0 0" }}>
-              {
-                productos.filter(
-                  (producto) =>
-                    Number(producto.stock || 0) <= 0
-                ).length
+                if (
+                  !mostrarNuevo
+                ) {
+                  setEditando(
+                    null
+                  );
+                }
+              }}
+              style={
+                primaryButton
               }
-            </h2>
+            >
+              {mostrarNuevo
+                ? "Cerrar"
+                : "＋ Nuevo producto"}
+            </button>
           </div>
-        </div>
 
-        {/* ========================= */}
-        {/* NUEVO PRODUCTO */}
-        {/* ========================= */}
-
-        {mostrarNuevo && (
-          <div
-            style={{
-              background: "white",
-              padding: "25px",
-              borderRadius: "18px",
-              marginBottom: "25px",
-              boxShadow:
-                "0 3px 15px rgba(0,0,0,0.06)",
-            }}
-          >
-            <h2 style={{ marginTop: 0 }}>
-              ➕ Agregar producto
-            </h2>
-
+          {mostrarNuevo && (
             <div
               style={{
-                display: "grid",
-                gridTemplateColumns:
-                  "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "15px",
+                marginTop:
+                  "20px",
               }}
             >
-              <div>
-                <label>Nombre</label>
+              <input
+                value={
+                  nuevoProducto.name
+                }
+                onChange={(e) =>
+                  setNuevoProducto({
+                    ...nuevoProducto,
+                    name:
+                      e.target.value,
+                  })
+                }
+                placeholder="Nombre del producto"
+                style={
+                  inputStyle
+                }
+              />
 
-                <input
-                  value={nuevoProducto.name}
-                  onChange={(e) =>
-                    setNuevoProducto({
-                      ...nuevoProducto,
-                      name: e.target.value,
-                    })
-                  }
-                  placeholder="Ej: Correa para perro"
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label>Categoría</label>
-
-                <input
-                  value={nuevoProducto.category}
-                  onChange={(e) =>
-                    setNuevoProducto({
-                      ...nuevoProducto,
-                      category: e.target.value,
-                    })
-                  }
-                  placeholder="Ej: Accesorios"
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label>Precio</label>
-
-                <input
-                  type="number"
-                  min="0"
-                  value={nuevoProducto.price}
-                  onChange={(e) =>
-                    setNuevoProducto({
-                      ...nuevoProducto,
-                      price: Number(
-                        e.target.value
-                      ),
-                    })
-                  }
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label>Stock</label>
-
-                <input
-                  type="number"
-                  min="0"
-                  value={nuevoProducto.stock}
-                  onChange={(e) =>
-                    setNuevoProducto({
-                      ...nuevoProducto,
-                      stock: Number(
-                        e.target.value
-                      ),
-                    })
-                  }
-                  style={inputStyle}
-                />
-              </div>
-
+              {/* CATEGORÍAS */}
               <div
                 style={{
-                  gridColumn: "1 / -1",
-                }}
-              >
-                <label>Descripción</label>
-
-                <textarea
-                  value={
-                    nuevoProducto.description
-                  }
-                  onChange={(e) =>
-                    setNuevoProducto({
-                      ...nuevoProducto,
-                      description:
-                        e.target.value,
-                    })
-                  }
-                  placeholder="Descripción del producto"
-                  style={{
-                    ...inputStyle,
-                    minHeight: "90px",
-                    resize: "vertical",
-                  }}
-                />
-              </div>
-
-              {/* ========================= */}
-              {/* TALLES NUEVO */}
-              {/* ========================= */}
-
-              <div
-                style={{
-                  gridColumn: "1 / -1",
+                  marginBottom:
+                    "12px",
                 }}
               >
                 <label
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "10px",
-                    cursor: "pointer",
-                    fontWeight: "bold",
-                    marginBottom: "12px",
+                    display:
+                      "block",
+                    marginBottom:
+                      "8px",
+                    fontWeight:
+                      "bold",
                   }}
                 >
-                  <input
-                    type="checkbox"
-                    checked={
-                      nuevoProducto.tiene_talle
+                  Categorías
+                </label>
+
+                <div
+                  style={{
+                    display:
+                      "flex",
+                    flexWrap:
+                      "wrap",
+                    gap: "8px",
+                  }}
+                >
+                  {categoriasDisponibles.map(
+                    (categoria) => {
+                      const categoriasActuales =
+                        nuevoProducto.category ||
+                        [];
+
+                      const seleccionada =
+                        categoriasActuales.includes(
+                          categoria
+                        );
+
+                      return (
+                        <label
+                          key={
+                            categoria
+                          }
+                          style={{
+                            display:
+                              "flex",
+                            alignItems:
+                              "center",
+                            gap: "7px",
+                            padding:
+                              "9px 12px",
+                            borderRadius:
+                              "10px",
+                            border:
+                              seleccionada
+                                ? "2px solid #263d2d"
+                                : "1px solid #ddd",
+                            background:
+                              seleccionada
+                                ? "#edf2ed"
+                                : "#fff",
+                            color:
+                              "#263d2d",
+                            cursor:
+                              "pointer",
+                            fontWeight:
+                              seleccionada
+                                ? "bold"
+                                : "normal",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={
+                              seleccionada
+                            }
+                            onChange={() =>
+                              setNuevoProducto(
+                                {
+                                  ...nuevoProducto,
+                                  category:
+                                    alternarCategoria(
+                                      categoriasActuales,
+                                      categoria
+                                    ),
+                                }
+                              )
+                            }
+                          />
+
+                          {categoria}
+                        </label>
+                      );
                     }
-                    onChange={(e) =>
-                      setNuevoProducto({
+                  )}
+                </div>
+              </div>
+
+              <textarea
+                value={
+                  nuevoProducto.description
+                }
+                onChange={(e) =>
+                  setNuevoProducto({
+                    ...nuevoProducto,
+                    description:
+                      e.target.value,
+                  })
+                }
+                placeholder="Descripción del producto"
+                style={{
+                  ...inputStyle,
+                  minHeight:
+                    "90px",
+                  resize:
+                    "vertical",
+                }}
+              />
+
+              <input
+                type="number"
+                min="0"
+                value={
+                  nuevoProducto.price
+                }
+                onChange={(e) =>
+                  setNuevoProducto({
+                    ...nuevoProducto,
+                    price:
+                      Number(
+                        e.target.value
+                      ),
+                  })
+                }
+                placeholder="Precio"
+                style={
+                  inputStyle
+                }
+              />
+
+              <input
+                type="number"
+                min="0"
+                value={
+                  nuevoProducto.stock
+                }
+                onChange={(e) =>
+                  setNuevoProducto({
+                    ...nuevoProducto,
+                    stock:
+                      Number(
+                        e.target.value
+                      ),
+                  })
+                }
+                placeholder="Stock"
+                style={
+                  inputStyle
+                }
+              />
+
+              {/* TALLES */}
+              <label
+                style={{
+                  display:
+                    "flex",
+                  alignItems:
+                    "center",
+                  gap: "10px",
+                  cursor:
+                    "pointer",
+                  fontWeight:
+                    "bold",
+                  marginBottom:
+                    "12px",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={
+                    nuevoProducto.tiene_talle
+                  }
+                  onChange={(e) =>
+                    setNuevoProducto(
+                      {
                         ...nuevoProducto,
                         tiene_talle:
                           e.target.checked,
@@ -1432,395 +1718,226 @@ if (fotos.length > 0) {
                           e.target.checked
                             ? nuevoProducto.talles
                             : [],
-                      })
-                    }
-                    style={{
-                      width: "18px",
-                      height: "18px",
-                    }}
-                  />
-
-                  Este producto tiene talles
-                </label>
-
-                {nuevoProducto.tiene_talle && (
-                  <>
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: "8px",
-                        alignItems: "center",
-                        marginBottom: "10px",
-                      }}
-                    >
-                      <input
-                        type="text"
-                        value={nuevoTalle}
-                        onChange={(e) =>
-                          setNuevoTalle(
-                            e.target.value
-                          )
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            agregarTalleNuevo();
-                          }
-                        }}
-                        placeholder="Ej: S"
-                        style={{
-                          ...inputStyle,
-                          marginBottom: 0,
-                        }}
-                      />
-
-                      <button
-                        type="button"
-                        onClick={
-                          agregarTalleNuevo
-                        }
-                        style={primaryButton}
-                      >
-                        ＋ Agregar
-                      </button>
-                    </div>
-
-                    {nuevoProducto.talles.length >
-                      0 && (
-                      <div
-                        style={{
-                          display: "flex",
-                          flexWrap: "wrap",
-                          gap: "8px",
-                        }}
-                      >
-                        {nuevoProducto.talles.map((talle) => (
-  <div
-    key={talle}
-    style={{
-      background: "#f8faf8",
-      border: "1px solid #e1e7e1",
-      borderRadius: "12px",
-      padding: "12px",
-      marginBottom: "10px",
-    }}
-  >
-    {/* TALLE */}
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        marginBottom: "10px",
-      }}
-    >
-      <strong
-        style={{
-          color: "#263d2d",
-          fontSize: "15px",
-        }}
-      >
-        Talle {talle}
-      </strong>
-
-      <button
-        type="button"
-        onClick={() => eliminarTalleNuevo(talle)}
-        style={talleDeleteButton}
-      >
-        ×
-      </button>
-    </div>
-
-    {/* COLORES */}
-    {coloresPorTalle[talle]?.length > 0 && (
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "7px",
-          marginBottom: "10px",
-        }}
-      >
-    {coloresPorTalle[talle].map((color) => {
-  const clave = `${talle}__${color}`;
-  const fotos = fotosPorColor[clave] || [];
-
-  return (
-    <div
-      key={color}
-      style={{
-        background: "#ffffff",
-        border: "1px solid #e0e5e0",
-        borderRadius: "12px",
-        padding: "12px",
-        marginBottom: "10px",
-      }}
-    >
-      {/* COLOR */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: "10px",
-        }}
-      >
-        <strong
-          style={{
-            color: "#263d2d",
-          }}
-        >
-          🎨 {color}
-        </strong>
-      </div>
-
-      {/* BOTÓN DE FOTOS */}
-      <label
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "7px",
-          background: "#263d2d",
-          color: "white",
-          padding: "9px 13px",
-          borderRadius: "9px",
-          cursor: "pointer",
-          fontSize: "13px",
-          fontWeight: "bold",
-        }}
-      >
-        📸 Agregar fotos
-        <input
-          type="file"
-          accept="image/*"
-          multiple
-          hidden
-          onChange={(e) => {
-            const files = Array.from(
-              e.target.files || []
-            );
-
-            seleccionarFotosColor(
-              talle,
-              color,
-              files
-            );
-          }}
-        />
-      </label>
-
-      {/* FOTOS SELECCIONADAS */}
-      {fotos.length > 0 && (
-        <div
-          style={{
-            display: "flex",
-            gap: "8px",
-            overflowX: "auto",
-            marginTop: "12px",
-            paddingBottom: "4px",
-          }}
-        >
-         {fotos.map((foto, index) => (
-  <div
-    key={`${foto.name}-${index}`}
-    style={{
-      position: "relative",
-      flexShrink: 0,
-    }}
-  >
-    <img
-      src={URL.createObjectURL(foto)}
-      alt={foto.name}
-      style={{
-        width: "70px",
-        height: "70px",
-        objectFit: "cover",
-        borderRadius: "9px",
-        display: "block",
-      }}
-    />
-  </div>
-))}
-        </div>
-      )}
-
-      {fotos.length > 0 && (
-        <p
-          style={{
-            margin: "8px 0 0",
-            fontSize: "12px",
-            color: "#666",
-          }}
-        >
-          {fotos.length} foto
-          {fotos.length !== 1 ? "s" : ""} seleccionada
-          {fotos.length !== 1 ? "s" : ""}
-        </p>
-      )}
-    </div>
-  );
-})}
-      </div>
-    )}
-
-    {/* AGREGAR COLOR */}
-    <div
-      style={{
-        display: "flex",
-        gap: "8px",
-        alignItems: "center",
-      }}
-    >
-      <input
-        type="text"
-        value={
-          talleParaColor === talle
-            ? nuevoColor
-            : ""
-        }
-        onChange={(e) => {
-          setTalleParaColor(talle);
-          setNuevoColor(e.target.value);
-        }}
-        onFocus={() => {
-          setTalleParaColor(talle);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            agregarColorATalle(talle);
-          }
-        }}
-        placeholder="Ej: Negro"
-        style={{
-          ...inputStyle,
-          marginBottom: 0,
-          flex: 1,
-        }}
-      />
-
-      <button
-        type="button"
-        onClick={() => agregarColorATalle(talle)}
-        style={{
-          ...secondaryButton,
-          marginLeft: 0,
-          whiteSpace: "nowrap",
-        }}
-      >
-        ＋ Color
-      </button>
-    </div>
-  </div>
-))}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-
-              {/* ========================= */}
-              {/* IMÁGENES NUEVO */}
-              {/* ========================= */}
-
-              <div
-                style={{
-                  gridColumn: "1 / -1",
-                }}
-              >
-                <label>
-                  Imágenes del producto
-                </label>
-
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={(e) => {
-                    const files = Array.from(
-                      e.target.files || []
-                    );
-
-                    setImagenesSeleccionadas(
-                      files
-                    );
+                      }
+                    )
+                  }
+                  style={{
+                    width:
+                      "18px",
+                    height:
+                      "18px",
                   }}
-                  style={inputStyle}
                 />
 
-                {imagenesSeleccionadas.length >
-                  0 && (
-                  <p
+                Este producto tiene talles
+              </label>
+
+              {nuevoProducto.tiene_talle && (
+                <>
+                  <div
                     style={{
-                      color: "#666",
+                      display:
+                        "flex",
+                      gap: "8px",
+                      alignItems:
+                        "center",
+                      marginBottom:
+                        "10px",
                     }}
                   >
-                    {
-                      imagenesSeleccionadas.length
-                    }{" "}
-                    imagen(es) seleccionada(s)
-                  </p>
-                )}
-              </div>
-            </div>
+                    <input
+                      type="text"
+                      value={
+                        nuevoTalle
+                      }
+                      onChange={(e) =>
+                        setNuevoTalle(
+                          e.target.value
+                        )
+                      }
+                      onKeyDown={(e) => {
+                        if (
+                          e.key ===
+                          "Enter"
+                        ) {
+                          e.preventDefault();
+                          agregarTalleNuevo();
+                        }
+                      }}
+                      placeholder="Ej: M"
+                      style={{
+                        ...inputStyle,
+                        marginBottom:
+                          0,
+                      }}
+                    />
 
-            <div
-              style={{
-                marginTop: "20px",
-              }}
-            >
+                    <button
+                      type="button"
+                      onClick={
+                        agregarTalleNuevo
+                      }
+                      style={
+                        primaryButton
+                      }
+                    >
+                      ＋ Agregar
+                    </button>
+                  </div>
+
+                  {nuevoProducto.talles
+                    .length > 0 && (
+                    <div
+                      style={{
+                        display:
+                          "flex",
+                        flexWrap:
+                          "wrap",
+                        gap: "8px",
+                        marginBottom:
+                          "15px",
+                      }}
+                    >
+                      {nuevoProducto.talles.map(
+                        (talle) => (
+                          <span
+                            key={
+                              talle
+                            }
+                            style={
+                              talleTag
+                            }
+                          >
+                            {talle}
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                eliminarTalleNuevo(
+                                  talle
+                                )
+                              }
+                              style={
+                                talleDeleteButton
+                              }
+                            >
+                              ×
+                            </button>
+                          </span>
+                        )
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* FOTOS */}
+              <label>
+                Imágenes del producto
+              </label>
+
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(e) => {
+                  const files =
+                    Array.from(
+                      e.target.files ||
+                        []
+                    );
+
+                  setImagenesSeleccionadas(
+                    files
+                  );
+                }}
+                style={
+                  inputStyle
+                }
+              />
+
+              {imagenesSeleccionadas.length >
+                0 && (
+                <p
+                  style={{
+                    color:
+                      "#666",
+                  }}
+                >
+                  {
+                    imagenesSeleccionadas.length
+                  }{" "}
+                  imagen(es)
+                  seleccionada(s)
+                </p>
+              )}
+
+              {subiendoImagen && (
+                <p
+                  style={{
+                    color:
+                      "#777",
+                  }}
+                >
+                  Subiendo imágenes...
+                </p>
+              )}
+
               <button
-                onClick={crearProducto}
+                onClick={
+                  crearProducto
+                }
                 disabled={
                   guardando ||
                   subiendoImagen
                 }
-                style={primaryButton}
+                style={{
+                  ...primaryButton,
+                  marginTop:
+                    "5px",
+                }}
               >
                 {guardando
-                  ? "Guardando..."
-                  : "💾 Crear producto"}
+                  ? "Creando..."
+                  : "＋ Crear producto"}
               </button>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* ========================= */}
         {/* BUSCADOR */}
-        {/* ========================= */}
-
         <div
           style={{
-            background: "white",
-            padding: "18px",
-            borderRadius: "15px",
-            marginBottom: "20px",
+            background:
+              "white",
+            padding:
+              "15px",
+            borderRadius:
+              "15px",
+            marginBottom:
+              "20px",
+            boxShadow:
+              "0 3px 15px rgba(0,0,0,0.05)",
           }}
         >
           <input
-            value={busqueda}
-            onChange={(e) =>
-              setBusqueda(e.target.value)
+            value={
+              busqueda
             }
-            placeholder="🔍 Buscar producto..."
+            onChange={(e) =>
+              setBusqueda(
+                e.target.value
+              )
+            }
+            placeholder="🔎 Buscar por nombre, descripción o categoría..."
             style={{
-              width: "100%",
-              boxSizing: "border-box",
-              padding: "13px 15px",
-              border: "1px solid #ddd",
-              borderRadius: "10px",
-              fontSize: "15px",
-              outline: "none",
+              ...inputStyle,
+              margin:
+                0,
             }}
           />
         </div>
-
-        {/* ========================= */}
         {/* PRODUCTOS */}
-        {/* ========================= */}
-
         {cargando ? (
           <div style={mensajeCard}>
             Cargando productos...
@@ -1847,37 +1964,53 @@ if (fotos.length > 0) {
 
                 return (
                   <div
-                    key={producto.id}
+                    key={
+                      producto.id
+                    }
                     style={{
-                      background: "white",
-                      borderRadius: "18px",
-                      overflow: "hidden",
+                      background:
+                        "white",
+                      borderRadius:
+                        "18px",
+                      overflow:
+                        "hidden",
                       boxShadow:
                         "0 3px 15px rgba(0,0,0,0.06)",
                     }}
                   >
                     {/* IMAGEN PRINCIPAL */}
-
                     {producto.image ? (
                       <img
-                        src={producto.image}
-                        alt={producto.name}
+                        src={
+                          producto.image
+                        }
+                        alt={
+                          producto.name
+                        }
                         style={{
-                          width: "100%",
-                          height: "220px",
-                          objectFit: "cover",
+                          width:
+                            "100%",
+                          height:
+                            "220px",
+                          objectFit:
+                            "cover",
                         }}
                       />
                     ) : (
                       <div
                         style={{
-                          height: "220px",
-                          background: "#eeeeee",
-                          display: "flex",
-                          alignItems: "center",
+                          height:
+                            "220px",
+                          background:
+                            "#eeeeee",
+                          display:
+                            "flex",
+                          alignItems:
+                            "center",
                           justifyContent:
                             "center",
-                          color: "#999",
+                          color:
+                            "#999",
                         }}
                       >
                         Sin imagen
@@ -1886,7 +2019,8 @@ if (fotos.length > 0) {
 
                     <div
                       style={{
-                        padding: "20px",
+                        padding:
+                          "20px",
                       }}
                     >
                       {editando?.id ===
@@ -1900,12 +2034,17 @@ if (fotos.length > 0) {
                             value={
                               editando.name
                             }
-                            onChange={(e) =>
-                              setEditando({
-                                ...editando,
-                                name: e.target
-                                  .value,
-                              })
+                            onChange={(
+                              e
+                            ) =>
+                              setEditando(
+                                {
+                                  ...editando,
+                                  name:
+                                    e.target
+                                      .value,
+                                }
+                              )
                             }
                             placeholder="Nombre"
                             style={
@@ -1913,37 +2052,126 @@ if (fotos.length > 0) {
                             }
                           />
 
-                          <input
-                            value={
-                              editando.category ||
-                              ""
-                            }
-                            onChange={(e) =>
-                              setEditando({
-                                ...editando,
-                                category:
-                                  e.target
-                                    .value,
-                              })
-                            }
-                            placeholder="Categoría"
-                            style={
-                              inputStyle
-                            }
-                          />
+                          {/* CATEGORÍAS MÚLTIPLES */}
+                          <div
+                            style={{
+                              marginBottom:
+                                "12px",
+                            }}
+                          >
+                            <label
+                              style={{
+                                display:
+                                  "block",
+                                marginBottom:
+                                  "8px",
+                                fontWeight:
+                                  "bold",
+                              }}
+                            >
+                              Categorías
+                            </label>
+
+                            <div
+                              style={{
+                                display:
+                                  "flex",
+                                flexWrap:
+                                  "wrap",
+                                gap: "8px",
+                              }}
+                            >
+                              {categoriasDisponibles.map(
+                                (
+                                  categoria
+                                ) => {
+                                  const categoriasActuales =
+                                    editando.category ||
+                                    [];
+
+                                  const seleccionada =
+                                    categoriasActuales.includes(
+                                      categoria
+                                    );
+
+                                  return (
+                                    <label
+                                      key={
+                                        categoria
+                                      }
+                                      style={{
+                                        display:
+                                          "flex",
+                                        alignItems:
+                                          "center",
+                                        gap: "7px",
+                                        padding:
+                                          "9px 12px",
+                                        borderRadius:
+                                          "10px",
+                                        border:
+                                          seleccionada
+                                            ? "2px solid #263d2d"
+                                            : "1px solid #ddd",
+                                        background:
+                                          seleccionada
+                                            ? "#edf2ed"
+                                            : "#fff",
+                                        color:
+                                          "#263d2d",
+                                        cursor:
+                                          "pointer",
+                                        fontWeight:
+                                          seleccionada
+                                            ? "bold"
+                                            : "normal",
+                                      }}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={
+                                          seleccionada
+                                        }
+                                        onChange={() =>
+                                          setEditando(
+                                            {
+                                              ...editando,
+                                              category:
+                                                alternarCategoria(
+                                                  categoriasActuales,
+                                                  categoria
+                                                ),
+                                            }
+                                          )
+                                        }
+                                      />
+
+                                      {
+                                        categoria
+                                      }
+                                    </label>
+                                  );
+                                }
+                              )}
+                            </div>
+                          </div>
 
                           <textarea
                             value={
                               editando.description ||
                               ""
                             }
-                            onChange={(e) =>
-                              setEditando({
-                                ...editando,
-                                description:
-                                  e.target
-                                    .value,
-                              })
+                            onChange={(
+                              e
+                            ) =>
+                              setEditando(
+                                {
+                                  ...editando,
+                                  description:
+                                    e.target
+                                      .value,
+                                }
+                              )
                             }
                             placeholder="Descripción"
                             style={{
@@ -1961,14 +2189,19 @@ if (fotos.length > 0) {
                             value={
                               editando.price
                             }
-                            onChange={(e) =>
-                              setEditando({
-                                ...editando,
-                                price: Number(
-                                  e.target
-                                    .value
-                                ),
-                              })
+                            onChange={(
+                              e
+                            ) =>
+                              setEditando(
+                                {
+                                  ...editando,
+                                  price:
+                                    Number(
+                                      e.target
+                                        .value
+                                    ),
+                                }
+                              )
                             }
                             placeholder="Precio"
                             style={
@@ -1982,14 +2215,19 @@ if (fotos.length > 0) {
                             value={
                               editando.stock
                             }
-                            onChange={(e) =>
-                              setEditando({
-                                ...editando,
-                                stock: Number(
-                                  e.target
-                                    .value
-                                ),
-                              })
+                            onChange={(
+                              e
+                            ) =>
+                              setEditando(
+                                {
+                                  ...editando,
+                                  stock:
+                                    Number(
+                                      e.target
+                                        .value
+                                    ),
+                                }
+                              )
                             }
                             placeholder="Stock"
                             style={
@@ -1997,10 +2235,7 @@ if (fotos.length > 0) {
                             }
                           />
 
-                          {/* ========================= */}
                           {/* TALLES EDITANDO */}
-                          {/* ========================= */}
-
                           <label
                             style={{
                               display:
@@ -2021,18 +2256,23 @@ if (fotos.length > 0) {
                               checked={
                                 editando.tiene_talle
                               }
-                              onChange={(e) =>
-                                setEditando({
-                                  ...editando,
-                                  tiene_talle:
-                                    e.target
-                                      .checked,
-                                  talles:
-                                    e.target
-                                      .checked
-                                      ? editando.talles
-                                      : [],
-                                })
+                              onChange={(
+                                e
+                              ) =>
+                                setEditando(
+                                  {
+                                    ...editando,
+                                    tiene_talle:
+                                      e.target
+                                        .checked,
+                                    talles:
+                                      e
+                                        .target
+                                        .checked
+                                        ? editando.talles
+                                        : [],
+                                  }
+                                )
                               }
                               style={{
                                 width:
@@ -2042,8 +2282,7 @@ if (fotos.length > 0) {
                               }}
                             />
 
-                            Este producto
-                            tiene talles
+                            Este producto tiene talles
                           </label>
 
                           {editando.tiene_talle && (
@@ -2086,7 +2325,8 @@ if (fotos.length > 0) {
                                   placeholder="Ej: M"
                                   style={{
                                     ...inputStyle,
-                                    marginBottom: 0,
+                                    marginBottom:
+                                      0,
                                   }}
                                 />
 
@@ -2103,7 +2343,8 @@ if (fotos.length > 0) {
                                 </button>
                               </div>
 
-                              {editando.talles
+                              {editando
+                                .talles
                                 .length >
                                 0 && (
                                 <div
@@ -2129,7 +2370,9 @@ if (fotos.length > 0) {
                                           talleTag
                                         }
                                       >
-                                        {talle}
+                                        {
+                                          talle
+                                        }
 
                                         <button
                                           type="button"
@@ -2151,182 +2394,271 @@ if (fotos.length > 0) {
                               )}
                             </>
                           )}
-                          {/* ========================= */}
-{/* VARIANTES DEL PRODUCTO */}
-{/* ========================= */}
 
-{editando.talles.map((talle) => {
-  const variantesDelTalle = variantes.filter(
-    (variante) =>
-      variante.producto_id === editando.id &&
-      variante.talle === talle
-  );
+                          {/* VARIANTES */}
+                          {editando.talles.map(
+                            (talle) => {
+                              const variantesDelTalle =
+                                variantes.filter(
+                                  (
+                                    variante
+                                  ) =>
+                                    variante.producto_id ===
+                                      editando.id &&
+                                    variante.talle ===
+                                      talle
+                                );
 
-  return (
-    <div
-      key={`variantes-${talle}`}
-      style={{
-        marginTop: "12px",
-        padding: "12px",
-        background: "#f8faf8",
-        borderRadius: "12px",
-        border: "1px solid #e1e7e1",
-      }}
-    >
-      <strong>Talle {talle}</strong>
-      <div
-  style={{
-    display: "flex",
-    gap: "8px",
-    marginTop: "10px",
-  }}
->
-  <input
-    type="text"
-    value={
-      talleParaColor === talle
-        ? nuevoColor
-        : ""
-    }
-    onChange={(e) => {
-      setTalleParaColor(talle);
-      setNuevoColor(e.target.value);
-    }}
-    onFocus={() => {
-      setTalleParaColor(talle);
-    }}
-    placeholder="Ej: Negro"
-    style={{
-      ...inputStyle,
-      marginBottom: 0,
-      flex: 1,
-    }}
-  />
+                              return (
+                                <div
+                                  key={`variantes-${talle}`}
+                                  style={{
+                                    marginTop:
+                                      "12px",
+                                    padding:
+                                      "12px",
+                                    background:
+                                      "#f8faf8",
+                                    borderRadius:
+                                      "12px",
+                                    border:
+                                      "1px solid #e1e7e1",
+                                  }}
+                                >
+                                  <strong>
+                                    Talle{" "}
+                                    {
+                                      talle
+                                    }
+                                  </strong>
 
-  <button
-    type="button"
-    onClick={() => {
-      const color = nuevoColor.trim();
+                                  <div
+                                    style={{
+                                      display:
+                                        "flex",
+                                      gap: "8px",
+                                      marginTop:
+                                        "10px",
+                                    }}
+                                  >
+                                    <input
+                                      type="text"
+                                      value={
+                                        talleParaColor ===
+                                        talle
+                                          ? nuevoColor
+                                          : ""
+                                      }
+                                      onChange={(
+                                        e
+                                      ) => {
+                                        setTalleParaColor(
+                                          talle
+                                        );
+                                        setNuevoColor(
+                                          e
+                                            .target
+                                            .value
+                                        );
+                                      }}
+                                      onFocus={() => {
+                                        setTalleParaColor(
+                                          talle
+                                        );
+                                      }}
+                                      placeholder="Ej: Negro"
+                                      style={{
+                                        ...inputStyle,
+                                        marginBottom:
+                                          0,
+                                        flex: 1,
+                                      }}
+                                    />
 
-      if (!color) {
-        alert("Ingresá un color.");
-        return;
-      }
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const color =
+                                          nuevoColor.trim();
 
-      const yaExiste = variantes.some(
-        (v) =>
-          v.producto_id === editando.id &&
-          v.talle === talle &&
-          v.color.toLowerCase() === color.toLowerCase()
-      );
+                                        if (
+                                          !color
+                                        ) {
+                                          alert(
+                                            "Ingresá un color."
+                                          );
+                                          return;
+                                        }
 
-      if (yaExiste) {
-        alert("Ese color ya existe para ese talle.");
-        return;
-      }
+                                        const yaExiste =
+                                          variantes.some(
+                                            (
+                                              v
+                                            ) =>
+                                              v.producto_id ===
+                                                editando.id &&
+                                              v.talle ===
+                                                talle &&
+                                              v.color.toLowerCase() ===
+                                                color.toLowerCase()
+                                          );
 
-      setVariantes([
-        ...variantes,
-        {
-          producto_id: editando.id,
-          talle,
-          color,
-        },
-      ]);
+                                        if (
+                                          yaExiste
+                                        ) {
+                                          alert(
+                                            "Ese color ya existe para ese talle."
+                                          );
+                                          return;
+                                        }
 
-      setNuevoColor("");
-      setTalleParaColor("");
-    }}
-    style={{
-      ...secondaryButton,
-      marginLeft: 0,
-      whiteSpace: "nowrap",
-    }}
-  >
-    ＋ Color
-  </button>
-</div>
+                                        setVariantes(
+                                          [
+                                            ...variantes,
+                                            {
+                                              producto_id:
+                                                editando.id,
+                                              talle,
+                                              color,
+                                            },
+                                          ]
+                                        );
 
-      {variantesDelTalle.length === 0 ? (
-        <p
-          style={{
-            fontSize: "13px",
-            color: "#777",
-            marginBottom: 0,
-          }}
-        >
-          No hay colores agregados.
-        </p>
-      ) : (
-        <div
-          style={{
-            marginTop: "10px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "10px",
-          }}
-        >
-          {variantesDelTalle.map((variante) => {
-            const fotos =
-              variante.id
-                ? imagenesVariantes[variante.id] || []
-                : [];
+                                        setNuevoColor(
+                                          ""
+                                        );
+                                        setTalleParaColor(
+                                          ""
+                                        );
+                                      }}
+                                      style={{
+                                        ...secondaryButton,
+                                        marginLeft:
+                                          0,
+                                        whiteSpace:
+                                          "nowrap",
+                                      }}
+                                    >
+                                      ＋ Color
+                                    </button>
+                                  </div>
 
-            return (
-              <div
-                key={variante.id}
-                style={{
-                  background: "white",
-                  padding: "10px",
-                  borderRadius: "10px",
-                  border: "1px solid #ddd",
-                }}
-              >
-                <strong>
-                  🎨 {variante.color}
-                </strong>
+                                  {variantesDelTalle.length ===
+                                  0 ? (
+                                    <p
+                                      style={{
+                                        fontSize:
+                                          "13px",
+                                        color:
+                                          "#777",
+                                        marginBottom:
+                                          0,
+                                      }}
+                                    >
+                                      No hay colores agregados.
+                                    </p>
+                                  ) : (
+                                    <div
+                                      style={{
+                                        marginTop:
+                                          "10px",
+                                        display:
+                                          "flex",
+                                        flexDirection:
+                                          "column",
+                                        gap: "10px",
+                                      }}
+                                    >
+                                      {variantesDelTalle.map(
+                                        (
+                                          variante
+                                        ) => {
+                                          const fotos =
+                                            variante.id
+                                              ? imagenesVariantes[
+                                                  variante.id
+                                                ] ||
+                                                []
+                                              : [];
 
-                {fotos.length > 0 && (
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "7px",
-                      overflowX: "auto",
-                      marginTop: "8px",
-                    }}
-                  >
-                    {fotos.map((foto) => (
-                      <img
-                        key={
-                          foto.id ||
-                          foto.image_url
-                        }
-                        src={foto.image_url}
-                        alt=""
-                        style={{
-                          width: "60px",
-                          height: "60px",
-                          objectFit: "cover",
-                          borderRadius: "8px",
-                          flexShrink: 0,
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-})}
+                                          return (
+                                            <div
+                                              key={
+                                                variante.id
+                                              }
+                                              style={{
+                                                background:
+                                                  "white",
+                                                padding:
+                                                  "10px",
+                                                borderRadius:
+                                                  "10px",
+                                                border:
+                                                  "1px solid #ddd",
+                                              }}
+                                            >
+                                              <strong>
+                                                🎨{" "}
+                                                {
+                                                  variante.color
+                                                }
+                                              </strong>
 
-                          {/* ========================= */}
+                                              {fotos.length >
+                                                0 && (
+                                                <div
+                                                  style={{
+                                                    display:
+                                                      "flex",
+                                                    gap: "7px",
+                                                    overflowX:
+                                                      "auto",
+                                                    marginTop:
+                                                      "8px",
+                                                  }}
+                                                >
+                                                  {fotos.map(
+                                                    (
+                                                      foto
+                                                    ) => (
+                                                      <img
+                                                        key={
+                                                          foto.id ||
+                                                          foto.image_url
+                                                        }
+                                                        src={
+                                                          foto.image_url
+                                                        }
+                                                        alt=""
+                                                        style={{
+                                                          width:
+                                                            "60px",
+                                                          height:
+                                                            "60px",
+                                                          objectFit:
+                                                            "cover",
+                                                          borderRadius:
+                                                            "8px",
+                                                          flexShrink:
+                                                            0,
+                                                        }}
+                                                      />
+                                                    )
+                                                  )}
+                                                </div>
+                                              )}
+                                            </div>
+                                          );
+                                        }
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            }
+                          )}
+
                           {/* IMÁGENES ACTUALES */}
-                          {/* ========================= */}
-
                           {imagenes.length >
                             0 && (
                             <div
@@ -2468,10 +2800,7 @@ if (fotos.length > 0) {
                             </div>
                           )}
 
-                          {/* ========================= */}
                           {/* AGREGAR IMÁGENES */}
-                          {/* ========================= */}
-
                           <label>
                             Agregar imágenes
                           </label>
@@ -2483,7 +2812,8 @@ if (fotos.length > 0) {
                             onChange={(e) => {
                               const files =
                                 Array.from(
-                                  e.target
+                                  e
+                                    .target
                                     .files ||
                                     []
                                 );
@@ -2508,8 +2838,7 @@ if (fotos.length > 0) {
                               {
                                 imagenesSeleccionadas.length
                               }{" "}
-                              imagen(es)
-                              nueva(s)
+                              imagen(es) nueva(s)
                               seleccionada(s)
                             </p>
                           )}
@@ -2521,8 +2850,7 @@ if (fotos.length > 0) {
                                   "#777",
                               }}
                             >
-                              Subiendo
-                              imágenes...
+                              Subiendo imágenes...
                             </p>
                           )}
 
@@ -2532,12 +2860,14 @@ if (fotos.length > 0) {
                               ""
                             }
                             onChange={(e) =>
-                              setEditando({
-                                ...editando,
-                                image:
-                                  e.target
-                                    .value,
-                              })
+                              setEditando(
+                                {
+                                  ...editando,
+                                  image:
+                                    e.target
+                                      .value,
+                                }
+                              )
                             }
                             placeholder="URL de imagen principal"
                             style={
@@ -2591,35 +2921,63 @@ if (fotos.length > 0) {
                                 "19px",
                             }}
                           >
-                            {producto.name}
+                            {
+                              producto.name
+                            }
                           </h3>
 
-                          {producto.category && (
-                            <span
-                              style={{
-                                display:
-                                  "inline-block",
-                                background:
-                                  "#edf2ed",
-                                padding:
-                                  "5px 9px",
-                                borderRadius:
-                                  "20px",
-                                fontSize:
-                                  "12px",
-                                marginBottom:
-                                  "10px",
-                              }}
-                            >
-                              {
-                                producto.category
-                              }
-                            </span>
-                          )}
+                          {/* CATEGORÍAS */}
+                          {producto.category &&
+                            producto.category
+                              .length >
+                              0 && (
+                              <div
+                                style={{
+                                  display:
+                                    "flex",
+                                  flexWrap:
+                                    "wrap",
+                                  gap: "6px",
+                                  marginBottom:
+                                    "10px",
+                                }}
+                              >
+                                {producto.category.map(
+                                  (
+                                    categoria
+                                  ) => (
+                                    <span
+                                      key={
+                                        categoria
+                                      }
+                                      style={{
+                                        display:
+                                          "inline-block",
+                                        background:
+                                          "#edf2ed",
+                                        color:
+                                          "#263d2d",
+                                        padding:
+                                          "5px 9px",
+                                        borderRadius:
+                                          "20px",
+                                        fontSize:
+                                          "12px",
+                                      }}
+                                    >
+                                      {
+                                        categoria
+                                      }
+                                    </span>
+                                  )
+                                )}
+                              </div>
+                            )}
 
                           <p
                             style={{
-                              color: "#666",
+                              color:
+                                "#666",
                               minHeight:
                                 "40px",
                             }}
@@ -2690,14 +3048,14 @@ if (fotos.length > 0) {
                           </div>
 
                           {/* MINIATURAS */}
-
                           {imagenes.length >
                             1 && (
                             <div
                               style={{
                                 display:
                                   "flex",
-                                gap: "7px",
+                                gap:
+                                  "7px",
                                 overflowX:
                                   "auto",
                                 marginBottom:
@@ -2739,17 +3097,23 @@ if (fotos.length > 0) {
                             style={{
                               display:
                                 "flex",
-                              gap: "8px",
+                              gap:
+                                "8px",
                             }}
                           >
                             <button
                               onClick={() => {
-                                setEditando({
-                                  ...producto,
-                                  talles:
-                                    producto.talles ||
-                                    [],
-                                });
+                                setEditando(
+                                  {
+                                    ...producto,
+                                    category:
+                                      producto.category ||
+                                      [],
+                                    talles:
+                                      producto.talles ||
+                                      [],
+                                  }
+                                );
 
                                 setMostrarNuevo(
                                   false
@@ -2766,7 +3130,8 @@ if (fotos.length > 0) {
                               style={{
                                 ...secondaryButton,
                                 flex: 1,
-                                marginLeft: 0,
+                                marginLeft:
+                                  0,
                               }}
                             >
                               ✏️ Editar
@@ -2874,7 +3239,8 @@ const statCard: React.CSSProperties = {
   background: "white",
   padding: "20px",
   borderRadius: "15px",
-  boxShadow: "0 3px 15px rgba(0,0,0,0.05)",
+  boxShadow:
+    "0 3px 15px rgba(0,0,0,0.05)",
 };
 
 const mensajeCard: React.CSSProperties = {
