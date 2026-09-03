@@ -205,119 +205,41 @@ useEffect(() => {
   // FOTOS DE PORTADA
   // =====================================================
 
-  async function cargarFotosPortada() {
-    const mapa: Record<number, string> = {}
+ async function cargarFotosPortada() {
+  const mapa: Record<number, string> = {}
 
-    const {
-      data: generales,
-      error: errorGenerales
-    } = await supabase
-      .from('ProductoImagenes')
-      .select(
-        'producto_id, image_url, orden'
-      )
-      .order('orden', {
-        ascending: true
-      })
+  const {
+    data: generales,
+    error
+  } = await supabase
+    .from('ProductoImagenes')
+    .select('producto_id, image_url, orden')
+    .order('orden', {
+      ascending: true
+    })
 
-    if (errorGenerales) {
-      console.error(
-        'ERROR FOTOS GENERALES:',
-        errorGenerales
-      )
-    } else {
-      ;(generales || []).forEach(
-        (imagen: Imagen) => {
-          if (
-            imagen.producto_id &&
-            imagen.image_url?.trim() &&
-            !mapa[imagen.producto_id]
-          ) {
-            mapa[imagen.producto_id] =
-              imagen.image_url.trim()
-          }
+  if (error) {
+    console.error(
+      'ERROR FOTOS GENERALES:',
+      error
+    )
+  } else {
+    ;(generales || []).forEach(
+      (imagen: Imagen) => {
+        if (
+          imagen.producto_id &&
+          imagen.image_url?.trim() &&
+          !mapa[imagen.producto_id]
+        ) {
+          mapa[imagen.producto_id] =
+            imagen.image_url.trim()
         }
-      )
-    }
-
-    const {
-      data: variantesBD,
-      error: errorVariantes
-    } = await supabase
-      .from('ProductoVariantes')
-      .select(
-        'id, producto_id'
-      )
-
-    if (errorVariantes) {
-      console.error(
-        'ERROR VARIANTES PORTADA:',
-        errorVariantes
-      )
-    } else if (
-      variantesBD &&
-      variantesBD.length > 0
-    ) {
-      const ids =
-        variantesBD.map(
-          variante => variante.id
-        )
-
-      const {
-        data: fotosVariantes,
-        error: errorFotos
-      } = await supabase
-        .from(
-          'ProductoVarianteImagenes'
-        )
-        .select(
-          'variante_id, image_url, orden'
-        )
-        .in(
-          'variante_id',
-          ids
-        )
-        .order(
-          'orden',
-          {
-            ascending: true
-          }
-        )
-
-      if (errorFotos) {
-        console.error(
-          'ERROR FOTOS VARIANTES:',
-          errorFotos
-        )
-      } else {
-        ;(fotosVariantes || []).forEach(
-          (imagen: Imagen) => {
-            const variante =
-              variantesBD.find(
-                v =>
-                  v.id ===
-                  imagen.variante_id
-              )
-
-            if (
-              variante &&
-              imagen.image_url?.trim() &&
-              !mapa[
-                variante.producto_id
-              ]
-            ) {
-              mapa[
-                variante.producto_id
-              ] =
-                imagen.image_url.trim()
-            }
-          }
-        )
       }
-    }
-
-    setImagenesPortada(mapa)
+    )
   }
+
+  setImagenesPortada(mapa)
+}
 
   // =====================================================
   // TODAS LAS FOTOS
@@ -1334,18 +1256,15 @@ const cerrarProducto = () => {
 
                       {imagenPortada ? (
 
-                        <img
-                          src={
-                            imagenPortada
-                          }
-                          alt={
-                            producto.name
-                          }
-                          onError={e => {
-                            e.currentTarget.style.display =
-                              'none'
-                          }}
-                        />
+                  <img
+  src={imagenPortada}
+  alt={producto.name}
+  loading="lazy"
+  decoding="async"
+  onError={e => {
+    e.currentTarget.style.display = 'none'
+  }}
+/>
 
                       ) : (
 
@@ -1578,11 +1497,11 @@ const cerrarProducto = () => {
                     >
 
                       <img
-                        src={
-                          imagen
-                        }
-                        alt=""
-                      />
+  src={imagen}
+  alt=""
+  loading="lazy"
+  decoding="async"
+/>
 
                     </button>
 
