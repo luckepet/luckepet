@@ -12,7 +12,7 @@ type Producto = {
   description: string | null
   price: number
   image: string | null
-  category: string | null
+  category: string[] | string | null
   stock: number
   tiene_talle: boolean
   talles: string[]
@@ -73,12 +73,6 @@ function App() {
     useState<number | null>(null)
 
   // =====================================================
-  // OPTIMIZAR IMAGEN
-  // =====================================================
-
-
-
-  // =====================================================
   // NORMALIZAR URL
   // =====================================================
 
@@ -87,18 +81,9 @@ function App() {
       const url = new URL(valor)
 
       return decodeURIComponent(url.pathname)
-        .replace(
-          '/storage/v1/object/public/',
-          ''
-        )
-        .replace(
-          '/storage/v1/object/sign/',
-          ''
-        )
-        .replace(
-          '/storage/v1/object/authenticated/',
-          ''
-        )
+        .replace('/storage/v1/object/public/', '')
+        .replace('/storage/v1/object/sign/', '')
+        .replace('/storage/v1/object/authenticated/', '')
         .replace(/^\/+/, '')
         .replace(/\/+$/, '')
         .toLowerCase()
@@ -180,16 +165,10 @@ function App() {
       }
     }
 
-    window.addEventListener(
-      'popstate',
-      manejarAtras
-    )
+    window.addEventListener('popstate', manejarAtras)
 
     return () => {
-      window.removeEventListener(
-        'popstate',
-        manejarAtras
-      )
+      window.removeEventListener('popstate', manejarAtras)
     }
   }, [productoSeleccionado])
 
@@ -206,16 +185,11 @@ function App() {
       })
 
     if (error) {
-      console.error(
-        'ERROR PRODUCTOS:',
-        error
-      )
+      console.error('ERROR PRODUCTOS:', error)
       return
     }
 
-    setProductos(
-      (data || []) as Producto[]
-    )
+    setProductos((data || []) as Producto[])
   }
 
   // =====================================================
@@ -227,49 +201,35 @@ function App() {
 
     const { data, error } = await supabase
       .from('ProductoImagenes')
-      .select(
-        'producto_id, image_url, orden'
-      )
-      .order(
-        'orden',
-        {
-          ascending: true
-        }
-      )
+      .select('producto_id, image_url, orden')
+      .order('orden', {
+        ascending: true
+      })
 
     if (error) {
-      console.error(
-        'ERROR FOTOS PORTADA:',
-        error
-      )
+      console.error('ERROR FOTOS PORTADA:', error)
     } else {
-      ;(data || []).forEach(
-        (imagen: Imagen) => {
-          if (
-            imagen.producto_id &&
-            imagen.image_url?.trim() &&
-            !mapa[imagen.producto_id]
-          ) {
-            mapa[imagen.producto_id] =
-              imagen.image_url.trim()
-          }
+      ;(data || []).forEach((imagen: Imagen) => {
+        if (
+          imagen.producto_id &&
+          imagen.image_url?.trim() &&
+          !mapa[imagen.producto_id]
+        ) {
+          mapa[imagen.producto_id] =
+            imagen.image_url.trim()
         }
-      )
+      })
     }
 
-    // Si no hay imagen en ProductoImagenes,
-    // usamos la imagen principal de Productos
-    productos.forEach(
-      producto => {
-        if (
-          !mapa[producto.id] &&
-          producto.image?.trim()
-        ) {
-          mapa[producto.id] =
-            producto.image.trim()
-        }
+    productos.forEach(producto => {
+      if (
+        !mapa[producto.id] &&
+        producto.image?.trim()
+      ) {
+        mapa[producto.id] =
+          producto.image.trim()
       }
-    )
+    })
 
     setImagenesPortada(mapa)
   }
@@ -283,11 +243,8 @@ function App() {
   ) {
     let fotos: string[] = []
 
-    // Imagen principal del producto
     if (producto.image?.trim()) {
-      fotos.push(
-        producto.image.trim()
-      )
+      fotos.push(producto.image.trim())
     }
 
     const {
@@ -295,19 +252,11 @@ function App() {
       error
     } = await supabase
       .from('ProductoImagenes')
-      .select(
-        'image_url, orden'
-      )
-      .eq(
-        'producto_id',
-        producto.id
-      )
-      .order(
-        'orden',
-        {
-          ascending: true
-        }
-      )
+      .select('image_url, orden')
+      .eq('producto_id', producto.id)
+      .order('orden', {
+        ascending: true
+      })
 
     if (error) {
       console.error(
@@ -315,42 +264,30 @@ function App() {
         error
       )
     } else {
-      ;(data || []).forEach(
-        (imagen: Imagen) => {
-          if (
-            imagen.image_url?.trim()
-          ) {
-            fotos.push(
-              imagen.image_url.trim()
-            )
-          }
+      ;(data || []).forEach((imagen: Imagen) => {
+        if (imagen.image_url?.trim()) {
+          fotos.push(
+            imagen.image_url.trim()
+          )
         }
-      )
+      })
     }
 
     return fotosUnicas(fotos)
   }
 
   // =====================================================
-  // CARGAR TODAS LAS FOTOS DEL PRODUCTO
+  // CARGAR FOTOS GENERALES DEL PRODUCTO
   // =====================================================
 
   async function cargarTodasLasImagenesProducto(
     producto: Producto
   ) {
     const fotosGenerales =
-      await cargarImagenesGenerales(
-        producto
-      )
+      await cargarImagenesGenerales(producto)
 
-    setImagenesGenerales(
-      fotosGenerales
-    )
-
-    setImagenesProducto(
-      fotosGenerales
-    )
-
+    setImagenesGenerales(fotosGenerales)
+    setImagenesProducto(fotosGenerales)
     setFotoActual(0)
   }
 
@@ -358,135 +295,106 @@ function App() {
   // VARIANTES
   // =====================================================
 
- async function cargarVariantes(
-  productoId: number
-) {
-  const {
-    data,
-    error
-  } = await supabase
-    .from('ProductoVariantes')
-    .select(
-      'id, producto_id, talle, color, precio'
-    )
-    .eq(
-      'producto_id',
-      productoId
-    )
-    .order(
-      'id',
-      {
-        ascending: true
-      }
-    )
-
-  if (error) {
-    console.error(
-      'ERROR VARIANTES:',
-      error
-    )
-
-    setVariantes([])
-    setImagenesVariantes({})
-    return
-  }
-
-  const variantesCargadas =
-    (data || []).map(variante => ({
-      ...variante,
-      precio: Number(
-        variante.precio || 0
-      )
-    })) as Variante[]
-
-  setVariantes(
-    variantesCargadas
-  )
-
-  if (
-    variantesCargadas.length === 0
+  async function cargarVariantes(
+    productoId: number
   ) {
-    setImagenesVariantes({})
-    return
-  }
-
-  const ids =
-    variantesCargadas.map(
-      variante =>
-        variante.id
-    )
-
-  const {
-    data: imagenes,
-    error: errorImagenes
-  } = await supabase
-    .from(
-      'ProductoVarianteImagenes'
-    )
-    .select(
-      'variante_id, image_url, orden'
-    )
-    .in(
-      'variante_id',
-      ids
-    )
-    .order(
-      'orden',
-      {
+    const {
+      data,
+      error
+    } = await supabase
+      .from('ProductoVariantes')
+      .select(
+        'id, producto_id, talle, color, precio'
+      )
+      .eq('producto_id', productoId)
+      .order('id', {
         ascending: true
-      }
-    )
+      })
 
-  if (errorImagenes) {
-    console.error(
-      'ERROR IMAGENES VARIANTES:',
-      errorImagenes
-    )
+    if (error) {
+      console.error(
+        'ERROR VARIANTES:',
+        error
+      )
 
-    setImagenesVariantes({})
-    return
-  }
-
-  const mapa:
-    Record<number, string[]> = {}
-
-  variantesCargadas.forEach(
-    variante => {
-      mapa[variante.id] = []
+      setVariantes([])
+      setImagenesVariantes({})
+      return
     }
-  )
 
-  ;(imagenes || []).forEach(
-    (imagen: Imagen) => {
-      if (
-        imagen.variante_id &&
-        imagen.image_url?.trim()
-      ) {
-        mapa[
-          imagen.variante_id
-        ].push(
-          imagen.image_url.trim()
+    const variantesCargadas =
+      (data || []).map(variante => ({
+        ...variante,
+        precio: Number(
+          variante.precio || 0
         )
-      }
-    }
-  )
+      })) as Variante[]
 
-  Object.keys(mapa).forEach(
-    id => {
-      const varianteId =
-        Number(id)
+    setVariantes(variantesCargadas)
+
+    if (variantesCargadas.length === 0) {
+      setImagenesVariantes({})
+      return
+    }
+
+    const ids =
+      variantesCargadas.map(
+        variante => variante.id
+      )
+
+    const {
+      data: imagenes,
+      error: errorImagenes
+    } = await supabase
+      .from('ProductoVarianteImagenes')
+      .select(
+        'variante_id, image_url, orden'
+      )
+      .in('variante_id', ids)
+      .order('orden', {
+        ascending: true
+      })
+
+    if (errorImagenes) {
+      console.error(
+        'ERROR IMAGENES VARIANTES:',
+        errorImagenes
+      )
+
+      setImagenesVariantes({})
+      return
+    }
+
+    const mapa: Record<number, string[]> = {}
+
+    variantesCargadas.forEach(variante => {
+      mapa[variante.id] = []
+    })
+
+    ;(imagenes || []).forEach(
+      (imagen: Imagen) => {
+        if (
+          imagen.variante_id &&
+          imagen.image_url?.trim()
+        ) {
+          mapa[imagen.variante_id].push(
+            imagen.image_url.trim()
+          )
+        }
+      }
+    )
+
+    Object.keys(mapa).forEach(id => {
+      const varianteId = Number(id)
 
       mapa[varianteId] =
         fotosUnicas(
           mapa[varianteId]
         )
-    }
-  )
+    })
 
-  setImagenesVariantes(
-    mapa
-  )
-}
+    setImagenesVariantes(mapa)
+  }
 
   // =====================================================
   // ABRIR PRODUCTO
@@ -504,9 +412,7 @@ function App() {
       window.location.href
     )
 
-    setProductoSeleccionado(
-      producto
-    )
+    setProductoSeleccionado(producto)
 
     setTalleSeleccionado('')
     setColorSeleccionado('')
@@ -570,25 +476,22 @@ function App() {
         variante =>
           variante.talle === talle
       )
-      .forEach(
-        variante => {
-          fotosDelTalle = [
-            ...fotosDelTalle,
-            ...(imagenesVariantes[
-              variante.id
-            ] || [])
-          ]
-        }
-      )
+      .forEach(variante => {
+        fotosDelTalle = [
+          ...fotosDelTalle,
+          ...(imagenesVariantes[
+            variante.id
+          ] || [])
+        ]
+      })
 
     const nuevasFotos =
-      fotosUnicas([
-        ...imagenesGenerales,
-        ...fotosDelTalle
-      ])
+      fotosUnicas(fotosDelTalle)
 
     setImagenesProducto(
-      nuevasFotos
+      nuevasFotos.length > 0
+        ? nuevasFotos
+        : imagenesGenerales
     )
   }
 
@@ -614,9 +517,8 @@ function App() {
           array
         ) =>
           color &&
-          array.indexOf(
-            color
-          ) === index
+          array.indexOf(color) ===
+            index
       )
 
   // =====================================================
@@ -638,6 +540,9 @@ function App() {
       )
 
     if (!variante) {
+      setImagenesProducto(
+        imagenesGenerales
+      )
       return
     }
 
@@ -646,99 +551,90 @@ function App() {
         variante.id
       ] || []
 
-    const nuevasFotos =
-      fotosUnicas([
-        ...imagenesGenerales,
-        ...fotosColor
-      ])
-
     setImagenesProducto(
-      nuevasFotos
+      fotosUnicas(
+        fotosColor.length > 0
+          ? fotosColor
+          : imagenesGenerales
+      )
     )
   }
+
   // =====================================================
-// PRECIO ACTUAL SEGÚN VARIANTE
-// =====================================================
+  // PRECIO ACTUAL SEGÚN VARIANTE
+  // =====================================================
 
-const obtenerPrecioActual = () => {
-  if (!productoSeleccionado) {
-    return 0
-  }
+  const obtenerPrecioActual = () => {
+    if (!productoSeleccionado) {
+      return 0
+    }
 
-  // Si el producto no tiene variantes
-  if (variantes.length === 0) {
+    if (variantes.length === 0) {
+      return Number(
+        productoSeleccionado.price || 0
+      )
+    }
+
+    if (
+      talleSeleccionado &&
+      colorSeleccionado
+    ) {
+      const variante =
+        variantes.find(
+          item =>
+            item.talle ===
+              talleSeleccionado &&
+            item.color ===
+              colorSeleccionado
+        )
+
+      if (variante) {
+        return Number(
+          variante.precio || 0
+        )
+      }
+    }
+
+    if (talleSeleccionado) {
+      const variantesDelTalle =
+        variantes.filter(
+          item =>
+            item.talle ===
+            talleSeleccionado
+        )
+
+      if (
+        variantesDelTalle.length > 0
+      ) {
+        const precios =
+          variantesDelTalle.map(
+            item =>
+              Number(
+                item.precio || 0
+              )
+          )
+
+        const todosIguales =
+          precios.every(
+            precio =>
+              precio ===
+              precios[0]
+          )
+
+        if (todosIguales) {
+          return precios[0]
+        }
+
+        return Math.min(
+          ...precios
+        )
+      }
+    }
+
     return Number(
       productoSeleccionado.price || 0
     )
   }
-
-  // TALLE + COLOR
-  if (
-    talleSeleccionado &&
-    colorSeleccionado
-  ) {
-    const variante =
-      variantes.find(
-        item =>
-          item.talle ===
-            talleSeleccionado &&
-          item.color ===
-            colorSeleccionado
-      )
-
-    if (variante) {
-      return Number(
-        variante.precio || 0
-      )
-    }
-  }
-
-  // SOLO TALLE
-  if (talleSeleccionado) {
-    const variantesDelTalle =
-      variantes.filter(
-        item =>
-          item.talle ===
-          talleSeleccionado
-      )
-
-    if (
-      variantesDelTalle.length > 0
-    ) {
-      const precios =
-        variantesDelTalle.map(
-          item =>
-            Number(
-              item.precio || 0
-            )
-        )
-
-      // Si todos los colores
-      // tienen el mismo precio
-      const todosIguales =
-        precios.every(
-          precio =>
-            precio === precios[0]
-        )
-
-      if (todosIguales) {
-        return precios[0]
-      }
-
-      // Si cada color tiene
-      // un precio diferente,
-      // mostramos el menor
-      return Math.min(
-        ...precios
-      )
-    }
-  }
-
-  // Precio normal
-  return Number(
-    productoSeleccionado.price || 0
-  )
-}
 
   // =====================================================
   // CARRITO
@@ -798,20 +694,17 @@ const obtenerPrecioActual = () => {
     setCarrito(
       carritoActual =>
         carritoActual
-          .map(
-            item =>
-              item.id === id &&
-              item.talle ===
-                talle &&
-              item.color ===
-                color
-                ? {
-                    ...item,
-                    cantidad:
-                      (item.cantidad ||
-                        1) - 1
-                  }
-                : item
+          .map(item =>
+            item.id === id &&
+            item.talle === talle &&
+            item.color === color
+              ? {
+                  ...item,
+                  cantidad:
+                    (item.cantidad ||
+                      1) - 1
+                }
+              : item
           )
           .filter(
             item =>
@@ -831,10 +724,8 @@ const obtenerPrecioActual = () => {
           item =>
             !(
               item.id === id &&
-              item.talle ===
-                talle &&
-              item.color ===
-                color
+              item.talle === talle &&
+              item.color === color
             )
         )
     )
@@ -844,8 +735,7 @@ const obtenerPrecioActual = () => {
     carrito.reduce(
       (total, producto) =>
         total +
-        (producto.cantidad ||
-          1),
+        (producto.cantidad || 1),
       0
     )
 
@@ -856,8 +746,7 @@ const obtenerPrecioActual = () => {
         Number(
           producto.price || 0
         ) *
-          (producto.cantidad ||
-            1),
+          (producto.cantidad || 1),
       0
     )
 
@@ -881,8 +770,7 @@ const obtenerPrecioActual = () => {
         index
       ) => {
         const cantidad =
-          producto.cantidad ||
-          1
+          producto.cantidad || 1
 
         const precio =
           Number(
@@ -895,16 +783,12 @@ const obtenerPrecioActual = () => {
         mensaje +=
           `${index + 1}. ${producto.name}\n`
 
-        if (
-          producto.talle
-        ) {
+        if (producto.talle) {
           mensaje +=
             `Talle: ${producto.talle}\n`
         }
 
-        if (
-          producto.color
-        ) {
+        if (producto.color) {
           mensaje +=
             `Color: ${producto.color}\n`
         }
@@ -969,7 +853,15 @@ const obtenerPrecioActual = () => {
         producto =>
           categoriaSeleccionada ===
             'Todos' ||
-          producto.category?.includes(
+          (
+            Array.isArray(
+              producto.category
+            )
+              ? producto.category
+              : producto.category
+                ? [producto.category]
+                : []
+          ).includes(
             categoriaSeleccionada
           )
       )
@@ -980,8 +872,7 @@ const obtenerPrecioActual = () => {
 
   const fotoAnterior = () => {
     if (
-      imagenesProducto.length <=
-      1
+      imagenesProducto.length <= 1
     ) {
       return
     }
@@ -989,16 +880,14 @@ const obtenerPrecioActual = () => {
     setFotoActual(
       actual =>
         actual === 0
-          ? imagenesProducto.length -
-            1
+          ? imagenesProducto.length - 1
           : actual - 1
     )
   }
 
   const fotoSiguiente = () => {
     if (
-      imagenesProducto.length <=
-      1
+      imagenesProducto.length <= 1
     ) {
       return
     }
@@ -1006,8 +895,7 @@ const obtenerPrecioActual = () => {
     setFotoActual(
       actual =>
         actual ===
-        imagenesProducto.length -
-          1
+        imagenesProducto.length - 1
           ? 0
           : actual + 1
     )
@@ -1041,12 +929,9 @@ const obtenerPrecioActual = () => {
       inicioToque - final
 
     if (
-      Math.abs(diferencia) >=
-      50
+      Math.abs(diferencia) >= 50
     ) {
-      if (
-        diferencia > 0
-      ) {
+      if (diferencia > 0) {
         fotoSiguiente()
       } else {
         fotoAnterior()
@@ -1097,9 +982,7 @@ const obtenerPrecioActual = () => {
             <button
               className="cerrar-carrito"
               onClick={() =>
-                setMostrarCarrito(
-                  false
-                )
+                setMostrarCarrito(false)
               }
             >
               ×
@@ -1268,8 +1151,7 @@ const obtenerPrecioActual = () => {
 
         <div className="tarjetas">
 
-          {productosFiltrados.length ===
-          0 ? (
+          {productosFiltrados.length === 0 ? (
 
             <div className="sin-productos">
 
@@ -1341,14 +1223,10 @@ const obtenerPrecioActual = () => {
 
                         <div
                           style={{
-                            height:
-                              '100%',
-                            display:
-                              'flex',
-                            alignItems:
-                              'center',
-                            justifyContent:
-                              'center'
+                            height: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
                           }}
                         >
                           Sin imagen
@@ -1392,17 +1270,13 @@ const obtenerPrecioActual = () => {
                               return
                             }
 
-                            agregarAlCarrito(
-                              {
-                                ...producto,
-                                talle:
-                                  null,
-                                color:
-                                  null,
-                                image:
-                                  imagenPortada
-                              }
-                            )
+                            agregarAlCarrito({
+                              ...producto,
+                              talle: null,
+                              color: null,
+                              image:
+                                imagenPortada
+                            })
                           }}
                         >
                           +
@@ -1432,8 +1306,7 @@ const obtenerPrecioActual = () => {
           {/* IMAGEN AMPLIADA */}
 
           {imagenAmpliada &&
-            imagenesProducto.length >
-              0 && (
+            imagenesProducto.length > 0 && (
 
             <div
               className="imagen-ampliada-overlay"
@@ -1451,8 +1324,7 @@ const obtenerPrecioActual = () => {
                 ×
               </button>
 
-              {imagenesProducto.length >
-                1 && (
+              {imagenesProducto.length > 1 && (
 
                 <button
                   className="imagen-ampliada-flecha izquierda"
@@ -1481,8 +1353,7 @@ const obtenerPrecioActual = () => {
                 }
               />
 
-              {imagenesProducto.length >
-                1 && (
+              {imagenesProducto.length > 1 && (
 
                 <button
                   className="imagen-ampliada-flecha derecha"
@@ -1496,8 +1367,7 @@ const obtenerPrecioActual = () => {
 
               )}
 
-              {imagenesProducto.length >
-                1 && (
+              {imagenesProducto.length > 1 && (
 
                 <div className="imagen-ampliada-contador">
                   {fotoActual + 1} /{' '}
@@ -1562,8 +1432,7 @@ const obtenerPrecioActual = () => {
                     Cargando imágenes...
                   </div>
 
-                ) : imagenesProducto.length >
-                  0 ? (
+                ) : imagenesProducto.length > 0 ? (
 
                   <img
                     src={
@@ -1592,8 +1461,7 @@ const obtenerPrecioActual = () => {
                         'none'
                     }}
                     style={{
-                      cursor:
-                        'zoom-in'
+                      cursor: 'zoom-in'
                     }}
                   />
 
@@ -1605,8 +1473,7 @@ const obtenerPrecioActual = () => {
 
                 )}
 
-                {imagenesProducto.length >
-                  1 && (
+                {imagenesProducto.length > 1 && (
 
                   <>
                     <button
@@ -1640,8 +1507,7 @@ const obtenerPrecioActual = () => {
 
               {/* MINIATURAS */}
 
-              {imagenesProducto.length >
-                1 && (
+              {imagenesProducto.length > 1 && (
 
                 <div className="producto-miniaturas">
 
@@ -1656,8 +1522,7 @@ const obtenerPrecioActual = () => {
                           imagen
                         )}-${index}`}
                         className={
-                          fotoActual ===
-                          index
+                          fotoActual === index
                             ? 'miniatura activa'
                             : 'miniatura'
                         }
@@ -1669,9 +1534,7 @@ const obtenerPrecioActual = () => {
                       >
 
                         <img
-                          src={
-                            imagen
-                          }
+                          src={imagen}
                           alt=""
                           loading="lazy"
                           decoding="async"
@@ -1692,10 +1555,14 @@ const obtenerPrecioActual = () => {
               <div className="producto-info-detalle">
 
                 <div className="producto-categoria">
-                  {
-                    productoSeleccionado.category ||
-                    'Producto'
-                  }
+                  {Array.isArray(
+                    productoSeleccionado.category
+                  )
+                    ? productoSeleccionado.category.join(
+                        ' · '
+                      )
+                    : productoSeleccionado.category ||
+                      'Producto'}
                 </div>
 
                 <h1>
@@ -1704,12 +1571,12 @@ const obtenerPrecioActual = () => {
                   }
                 </h1>
 
-             <div className="producto-precio">
-  $
-  {obtenerPrecioActual().toLocaleString(
-    'es-AR'
-  )}
-</div>
+                <div className="producto-precio">
+                  $
+                  {obtenerPrecioActual().toLocaleString(
+                    'es-AR'
+                  )}
+                </div>
 
                 {productoSeleccionado.description && (
 
@@ -1726,6 +1593,7 @@ const obtenerPrecioActual = () => {
                     </p>
 
                   </div>
+
                 )}
 
                 {/* TALLES */}
@@ -1759,9 +1627,7 @@ const obtenerPrecioActual = () => {
                         talle => (
 
                           <button
-                            key={
-                              talle
-                            }
+                            key={talle}
                             className={
                               talleSeleccionado ===
                               talle
@@ -1774,9 +1640,7 @@ const obtenerPrecioActual = () => {
                               )
                             }
                           >
-                            {
-                              talle
-                            }
+                            {talle}
                           </button>
 
                         )
@@ -1785,14 +1649,14 @@ const obtenerPrecioActual = () => {
                     </div>
 
                   </div>
+
                 )}
 
                 {/* COLORES */}
 
                 {productoSeleccionado.tiene_talle &&
                   talleSeleccionado &&
-                  coloresDisponibles.length >
-                    0 && (
+                  coloresDisponibles.length > 0 && (
 
                   <div className="selector-producto">
 
@@ -1818,9 +1682,7 @@ const obtenerPrecioActual = () => {
                         color => (
 
                           <button
-                            key={
-                              color
-                            }
+                            key={color}
                             className={
                               colorSeleccionado ===
                               color
@@ -1833,9 +1695,7 @@ const obtenerPrecioActual = () => {
                               )
                             }
                           >
-                            {
-                              color
-                            }
+                            {color}
                           </button>
 
                         )
@@ -1844,6 +1704,7 @@ const obtenerPrecioActual = () => {
                     </div>
 
                   </div>
+
                 )}
 
                 {/* STOCK */}
@@ -1852,8 +1713,7 @@ const obtenerPrecioActual = () => {
 
                   <span className="stock-punto"></span>
 
-                  {productoSeleccionado.stock >
-                  0
+                  {productoSeleccionado.stock > 0
                     ? 'Stock disponible'
                     : 'Sin stock'}
 
@@ -1868,8 +1728,7 @@ const obtenerPrecioActual = () => {
                 <button
                   className="producto-boton-carrito"
                   disabled={
-                    productoSeleccionado.stock <=
-                    0
+                    productoSeleccionado.stock <= 0
                   }
                   onClick={() => {
 
@@ -1885,8 +1744,7 @@ const obtenerPrecioActual = () => {
 
                     if (
                       productoSeleccionado.tiene_talle &&
-                      variantes.length >
-                        0 &&
+                      variantes.length > 0 &&
                       !colorSeleccionado
                     ) {
                       alert(
@@ -1903,15 +1761,20 @@ const obtenerPrecioActual = () => {
                           variante.color ===
                             colorSeleccionado
                       )
-                      const precioSeleccionado =
-  varianteSeleccionada
-    ? Number(varianteSeleccionada.precio || 0)
-    : Number(productoSeleccionado.price || 0)
+
+                    const precioSeleccionado =
+                      varianteSeleccionada
+                        ? Number(
+                            varianteSeleccionada.precio ||
+                              0
+                          )
+                        : Number(
+                            productoSeleccionado.price ||
+                              0
+                          )
 
                     const imagenCarrito =
-                      imagenesProducto[
-                        0
-                      ] ||
+                      imagenesProducto[0] ||
                       imagenesPortada[
                         productoSeleccionado.id
                       ] ||
@@ -1931,7 +1794,9 @@ const obtenerPrecioActual = () => {
 
                       image:
                         imagenCarrito,
-                        price: precioSeleccionado,
+
+                      price:
+                        precioSeleccionado,
 
                       variante_id:
                         varianteSeleccionada?.id ||
@@ -1941,8 +1806,7 @@ const obtenerPrecioActual = () => {
                     cerrarProducto()
                   }}
                 >
-                  {productoSeleccionado.stock >
-                  0
+                  {productoSeleccionado.stock > 0
                     ? 'Agregar al carrito'
                     : 'Sin stock'}
                 </button>
