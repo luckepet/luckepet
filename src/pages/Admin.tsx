@@ -26,6 +26,7 @@ type Variante = {
   producto_id: number;
   talle: string;
   color: string;
+  precio: number;
 };
 
 type ImagenVariante = {
@@ -66,6 +67,7 @@ function alternarCategoria(
 
 function Admin() {
   const [productos, setProductos] = useState<Producto[]>([]);
+
   const [imagenesProducto, setImagenesProducto] = useState<
     Record<number, ImagenProducto[]>
   >({});
@@ -86,15 +88,26 @@ function Admin() {
   const [guardando, setGuardando] = useState(false);
   const [subiendoImagen, setSubiendoImagen] = useState(false);
 
-  const [imagenesSeleccionadas, setImagenesSeleccionadas] = useState<File[]>(
-    []
-  );
+  const [imagenesSeleccionadas, setImagenesSeleccionadas] =
+    useState<File[]>([]);
 
   const [variantes, setVariantes] = useState<Variante[]>([]);
 
   const [imagenesVariantes, setImagenesVariantes] = useState<
     Record<number, ImagenVariante[]>
   >({});
+
+  /*
+   * FOTOS NUEVAS DE LAS VARIANTES
+   *
+   * La clave es:
+   * producto_id__talle__color
+   *
+   * Esto sirve tanto para variantes existentes
+   * como para variantes nuevas.
+   */
+  const [fotosNuevasVariantes, setFotosNuevasVariantes] =
+    useState<Record<string, File[]>>({});
 
   const [nuevoColor, setNuevoColor] = useState("");
   const [talleParaColor, setTalleParaColor] = useState("");
@@ -107,7 +120,10 @@ function Admin() {
     Record<string, File[]>
   >({});
 
-  // eslint-disable-next-line
+  function claveVariante(variante: Variante) {
+    return `${variante.producto_id}__${variante.talle}__${variante.color}`;
+  }
+
   function seleccionarFotosColor(
     talle: string,
     color: string,
@@ -115,17 +131,31 @@ function Admin() {
   ) {
     const clave = `${talle}__${color}`;
 
-    setFotosPorColor({
-      ...fotosPorColor,
+    setFotosPorColor((actuales) => ({
+      ...actuales,
       [clave]: files,
-    });
+    }));
   }
-  void seleccionarFotosColor;
+
+  function seleccionarFotosVariante(
+    variante: Variante,
+    files: File[]
+  ) {
+    const clave = claveVariante(variante);
+
+    setFotosNuevasVariantes((actuales) => ({
+      ...actuales,
+      [clave]: files,
+    }));
+  }
 
   const [nuevoTalle, setNuevoTalle] = useState("");
   const [nuevoTalleEditando, setNuevoTalleEditando] = useState("");
 
+  // =========================
   // SESIÓN
+  // =========================
+
   useEffect(() => {
     async function verificarSesion() {
       const { data } = await supabase.auth.getSession();
@@ -147,7 +177,10 @@ function Admin() {
     };
   }, []);
 
+  // =========================
   // CARGAR PRODUCTOS
+  // =========================
+
   useEffect(() => {
     if (sesion) {
       cargarProductos();
@@ -179,7 +212,10 @@ function Admin() {
     setCargando(false);
   }
 
+  // =========================
   // CARGAR IMÁGENES
+  // =========================
+
   async function cargarImagenes(listaProductos: Producto[]) {
     if (listaProductos.length === 0) {
       setImagenesProducto({});
@@ -215,7 +251,10 @@ function Admin() {
     setImagenesProducto(mapa);
   }
 
+  // =========================
   // CARGAR VARIANTES
+  // =========================
+
   async function cargarVariantes() {
     const { data, error } = await supabase
       .from("ProductoVariantes")
@@ -236,11 +275,13 @@ function Admin() {
       return;
     }
 
-    const { data: imagenes, error: errorImagenes } =
-      await supabase
-        .from("ProductoVarianteImagenes")
-        .select("*")
-        .order("orden", { ascending: true });
+    const {
+      data: imagenes,
+      error: errorImagenes,
+    } = await supabase
+      .from("ProductoVarianteImagenes")
+      .select("*")
+      .order("orden", { ascending: true });
 
     if (errorImagenes) {
       console.error(
@@ -271,7 +312,10 @@ function Admin() {
     setImagenesVariantes(mapa);
   }
 
+  // =========================
   // ACTUALIZACIONES EN TIEMPO REAL
+  // =========================
+
   useEffect(() => {
     if (!sesion) return;
 
@@ -305,13 +349,48 @@ function Admin() {
       )
       .subscribe();
 
+    const canalVariantes = supabase
+      .channel("variantes-cambios")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "ProductoVariantes",
+        },
+        () => {
+          cargarProductos();
+        }
+      )
+      .subscribe();
+
+    const canalImagenesVariantes = supabase
+      .channel("imagenes-variantes-cambios")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "ProductoVarianteImagenes",
+        },
+        () => {
+          cargarProductos();
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(canalProductos);
       supabase.removeChannel(canalImagenes);
+      supabase.removeChannel(canalVariantes);
+      supabase.removeChannel(canalImagenesVariantes);
     };
   }, [sesion]);
 
+  // =========================
   // LOGIN
+  // =========================
+
   async function iniciarSesion() {
     if (!email.trim() || !password) {
       alert("Ingresá email y contraseña.");
@@ -320,11 +399,13 @@ function Admin() {
 
     setIniciandoSesion(true);
 
-    const { data, error } =
-      await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
+    const {
+      data,
+      error,
+    } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
 
     if (error) {
       console.error(
@@ -342,13 +423,15 @@ function Admin() {
     setIniciandoSesion(false);
   }
 
-  // CERRAR SESIÓN
   async function cerrarSesion() {
     await supabase.auth.signOut();
     setSesion(null);
   }
 
-  // AGREGAR TALLE NUEVO
+  // =========================
+  // TALLES
+  // =========================
+
   function agregarTalleNuevo() {
     const talle = nuevoTalle.trim();
 
@@ -367,8 +450,6 @@ function Admin() {
     setNuevoTalle("");
   }
 
-  // eslint-disable-next-line
-
   function agregarColorATalle(talle: string) {
     const color = nuevoColor.trim();
 
@@ -380,25 +461,24 @@ function Admin() {
     const coloresActuales =
       coloresPorTalle[talle] || [];
 
-    if (coloresActuales.includes(color)) {
-      alert(
-        "Ese color ya está agregado a ese talle."
-      );
+    if (
+      coloresActuales.some(
+        (c) =>
+          c.toLowerCase() === color.toLowerCase()
+      )
+    ) {
+      alert("Ese color ya está agregado a ese talle.");
       return;
     }
 
-    setColoresPorTalle({
-      ...coloresPorTalle,
-      [talle]: [
-        ...coloresActuales,
-        color,
-      ],
-    });
+    setColoresPorTalle((actuales) => ({
+      ...actuales,
+      [talle]: [...coloresActuales, color],
+    }));
 
     setNuevoColor("");
     setTalleParaColor("");
   }
-  void agregarColorATalle;
 
   function eliminarTalleNuevo(talle: string) {
     setNuevoProducto({
@@ -407,9 +487,14 @@ function Admin() {
         (t) => t !== talle
       ),
     });
+
+    setColoresPorTalle((actuales) => {
+      const copia = { ...actuales };
+      delete copia[talle];
+      return copia;
+    });
   }
 
-  // AGREGAR TALLE EDITANDO
   function agregarTalleEditando() {
     if (!editando) return;
 
@@ -424,10 +509,7 @@ function Admin() {
 
     setEditando({
       ...editando,
-      talles: [
-        ...editando.talles,
-        talle,
-      ],
+      talles: [...editando.talles, talle],
     });
 
     setNuevoTalleEditando("");
@@ -444,7 +526,10 @@ function Admin() {
     });
   }
 
+  // =========================
   // SUBIR IMÁGENES
+  // =========================
+
   async function subirImagenes(
     files: File[],
     productoId: number,
@@ -463,9 +548,7 @@ function Admin() {
         const file = files[i];
 
         if (!file.type.startsWith("image/")) {
-          alert(
-            `${file.name} no es una imagen válida.`
-          );
+          alert(`${file.name} no es una imagen válida.`);
           continue;
         }
 
@@ -480,17 +563,18 @@ function Admin() {
             .toString(36)
             .substring(2, 8)}.${extension}`;
 
-        const { error: errorStorage } =
-          await supabase.storage
-            .from("PRODUCTOS")
-            .upload(
-              nombreArchivo,
-              file,
-              {
-                cacheControl: "3600",
-                upsert: false,
-              }
-            );
+        const {
+          error: errorStorage,
+        } = await supabase.storage
+          .from("PRODUCTOS")
+          .upload(
+            nombreArchivo,
+            file,
+            {
+              cacheControl: "3600",
+              upsert: false,
+            }
+          );
 
         if (errorStorage) {
           console.error(
@@ -505,12 +589,11 @@ function Admin() {
           continue;
         }
 
-        const { data: publicUrlData } =
-          supabase.storage
-            .from("PRODUCTOS")
-            .getPublicUrl(
-              nombreArchivo
-            );
+        const {
+          data: publicUrlData,
+        } = supabase.storage
+          .from("PRODUCTOS")
+          .getPublicUrl(nombreArchivo);
 
         const url =
           publicUrlData.publicUrl;
@@ -519,17 +602,19 @@ function Admin() {
           alert(
             `No se pudo obtener la URL de ${file.name}.`
           );
+
           continue;
         }
 
-        const { error: errorBD } =
-          await supabase
-            .from("ProductoImagenes")
-            .insert({
-              producto_id: productoId,
-              image_url: url,
-              orden: ordenInicial + i,
-            });
+        const {
+          error: errorBD,
+        } = await supabase
+          .from("ProductoImagenes")
+          .insert({
+            producto_id: productoId,
+            image_url: url,
+            orden: ordenInicial + i,
+          });
 
         if (errorBD) {
           console.error(
@@ -552,6 +637,10 @@ function Admin() {
 
     return urls;
   }
+
+  // =========================
+  // SUBIR FOTOS DE VARIANTE
+  // =========================
 
   async function subirImagenesDeVariante(
     files: File[],
@@ -577,46 +666,48 @@ function Admin() {
           .toString(36)
           .substring(2, 8)}.${extension}`;
 
-      const { error: errorStorage } =
-        await supabase.storage
-          .from("PRODUCTOS")
-          .upload(
-            nombreArchivo,
-            file,
-            {
-              cacheControl: "3600",
-              upsert: false,
-            }
-          );
+      const {
+        error: errorStorage,
+      } = await supabase.storage
+        .from("PRODUCTOS")
+        .upload(
+          nombreArchivo,
+          file,
+          {
+            cacheControl: "3600",
+            upsert: false,
+          }
+        );
 
       if (errorStorage) {
         console.error(
           "ERROR AL SUBIR FOTO DE VARIANTE:",
           errorStorage
         );
+
         continue;
       }
 
-      const { data: publicUrlData } =
-        supabase.storage
-          .from("PRODUCTOS")
-          .getPublicUrl(
-            nombreArchivo
-          );
+      const {
+        data: publicUrlData,
+      } = supabase.storage
+        .from("PRODUCTOS")
+        .getPublicUrl(nombreArchivo);
 
       const url =
         publicUrlData.publicUrl;
 
       if (!url) continue;
 
-      const { error: errorBD } =
-        await supabase
-          .from("ProductoVarianteImagenes")
-          .insert({
-            variante_id: varianteId,
-            image_url: url,
-            orden: i,
-          });
+      const {
+        error: errorBD,
+      } = await supabase
+        .from("ProductoVarianteImagenes")
+        .insert({
+          variante_id: varianteId,
+          image_url: url,
+          orden: i,
+        });
 
       if (errorBD) {
         console.error(
@@ -627,7 +718,10 @@ function Admin() {
     }
   }
 
+  // =========================
   // CREAR PRODUCTO
+  // =========================
+
   async function crearProducto() {
     if (!nuevoProducto.name.trim()) {
       alert("El producto necesita un nombre.");
@@ -656,15 +750,10 @@ function Admin() {
           name: nuevoProducto.name.trim(),
           description:
             nuevoProducto.description.trim(),
-          price: Number(
-            nuevoProducto.price
-          ),
+          price: Number(nuevoProducto.price),
           image: "",
-          category:
-            nuevoProducto.category,
-          stock: Number(
-            nuevoProducto.stock
-          ),
+          category: nuevoProducto.category,
+          stock: Number(nuevoProducto.stock),
           tiene_talle:
             nuevoProducto.tiene_talle,
           talles:
@@ -724,67 +813,33 @@ function Admin() {
         }
       }
 
-      // Preserve the existing
-      // variant creation loops.
-      for (
-        const talle of nuevoProducto.talles
-      ) {
-        const colores =
-          coloresPorTalle[talle] || [];
-
-        for (
-          const color of colores
-        ) {
-          const {
-            data: varianteCreada,
-            error: errorVariante,
-          } = await supabase
-            .from("ProductoVariantes")
-            .insert({
-              producto_id:
-                productoCreado.id,
-              talle,
-              color,
-            })
-            .select()
-            .single();
-
-          if (
-            errorVariante ||
-            !varianteCreada
-          ) {
-            console.error(
-              "ERROR AL CREAR VARIANTE:",
-              errorVariante
-            );
-            continue;
-          }
-
-          const clave =
-            `${talle}__${color}`;
-
-          const fotos =
-            fotosPorColor[clave] || [];
-
-          if (fotos.length > 0) {
-            await subirImagenesDeVariante(
-              fotos,
-              varianteCreada.id
-            );
-          }
-        }
-      }
+      // =========================
+      // CREAR VARIANTES
+      // =========================
 
       if (nuevoProducto.tiene_talle) {
-        for (
-          const talle of nuevoProducto.talles
-        ) {
+        for (const talle of nuevoProducto.talles) {
           const colores =
             coloresPorTalle[talle] || [];
 
-          for (
-            const color of colores
-          ) {
+          for (const color of colores) {
+            const clave =
+              `${talle}__${color}`;
+
+            /*
+             * Por ahora, cuando se crea una variante,
+             * usamos el precio que se haya indicado
+             * para esa combinación.
+             *
+             * La interfaz de precio individual
+             * está en la PARTE 2.
+             */
+
+            const precioGuardado =
+              Number(
+                nuevoProducto.price || 0
+              );
+
             const {
               data: varianteCreada,
               error: errorVariante,
@@ -793,8 +848,12 @@ function Admin() {
               .insert({
                 producto_id:
                   productoCreado.id,
-                talle: talle,
-                color: color,
+                talle:
+                  talle,
+                color:
+                  color,
+                precio:
+                  precioGuardado,
               })
               .select()
               .single();
@@ -810,9 +869,6 @@ function Admin() {
 
               continue;
             }
-
-            const clave =
-              `${talle}__${color}`;
 
             const fotos =
               fotosPorColor[clave] || [];
@@ -842,6 +898,7 @@ function Admin() {
       setTalleParaColor("");
       setColoresPorTalle({});
       setFotosPorColor({});
+      setFotosNuevasVariantes({});
       setMostrarNuevo(false);
     } finally {
       setGuardando(false);
@@ -849,10 +906,15 @@ function Admin() {
     }
   }
 
+  // =========================
   // ELIMINAR IMAGEN
+  // =========================
+
   async function eliminarImagen(
     imagen: ImagenProducto
   ) {
+    if (!editando) return;
+
     const confirmar =
       window.confirm(
         "¿Querés eliminar esta imagen?"
@@ -860,219 +922,64 @@ function Admin() {
 
     if (!confirmar) return;
 
-    if (imagen.id) {
-      const { error } =
-        await supabase
-          .from("producto_imagenes")
-          .delete()
-          .eq("id", imagen.id);
+    const {
+      error,
+    } = await supabase
+      .from("ProductoImagenes")
+      .delete()
+      .eq("id", imagen.id);
 
-      if (error) {
-        console.error(
-          "ERROR AL ELIMINAR IMAGEN:",
-          error
-        );
-        alert(
-          "No se pudo eliminar la imagen."
-        );
-        return;
-      }
-    }
-
-    const producto =
-      productos.find(
-        (p) =>
-          p.id ===
-          imagen.producto_id
+    if (error) {
+      console.error(
+        "ERROR AL ELIMINAR IMAGEN:",
+        error
       );
 
+      alert(
+        "No se pudo eliminar la imagen."
+      );
+
+      return;
+    }
+
     if (
-      producto?.image ===
+      editando.image ===
       imagen.image_url
     ) {
-      const restantes =
+      const imagenesRestantes =
         imagenesProducto[
-          imagen.producto_id
+          editando.id
         ]?.filter(
-          (img) =>
-            img.id !== imagen.id
+          (i) => i.id !== imagen.id
         ) || [];
 
       const nuevaPrincipal =
-        restantes.length > 0
-          ? restantes[0]
-              .image_url
-          : "";
+        imagenesRestantes[0]
+          ?.image_url || "";
 
       await supabase
         .from("Productos")
         .update({
-          image:
-            nuevaPrincipal,
+          image: nuevaPrincipal,
         })
         .eq(
           "id",
-          imagen.producto_id
+          editando.id
         );
+
+      setEditando({
+        ...editando,
+        image: nuevaPrincipal,
+      });
     }
 
     await cargarProductos();
   }
-  // EDITAR PRODUCTO
-  async function guardarCambios() {
-    if (!editando) return;
 
-    if (!editando.name.trim()) {
-      alert("El producto necesita un nombre.");
-      return;
-    }
-
-    if (editando.price < 0) {
-      alert("El precio no puede ser negativo.");
-      return;
-    }
-
-    if (editando.stock < 0) {
-      alert("El stock no puede ser negativo.");
-      return;
-    }
-
-    setGuardando(true);
-
-    try {
-      const { error } = await supabase
-        .from("Productos")
-        .update({
-          name: editando.name.trim(),
-          description:
-            editando.description?.trim() || "",
-          price: Number(editando.price),
-          image:
-            editando.image?.trim() || "",
-          category:
-            editando.category || [],
-          stock: Number(editando.stock),
-          tiene_talle:
-            editando.tiene_talle,
-          talles:
-            editando.tiene_talle
-              ? editando.talles
-              : [],
-        })
-        .eq("id", editando.id);
-
-      if (error) {
-        console.error(
-          "ERROR AL ACTUALIZAR:",
-          error
-        );
-        alert(
-          "No se pudo guardar el producto."
-        );
-        return;
-      }
-
-      const variantesDelProducto =
-        variantes.filter(
-          (variante) =>
-            variante.producto_id ===
-              editando.id &&
-            variante.id === undefined
-        );
-
-      for (
-        const variante of variantesDelProducto
-      ) {
-        const {
-          data: varianteCreada,
-          error: errorVariante,
-        } = await supabase
-          .from("ProductoVariantes")
-          .insert({
-            producto_id:
-              editando.id,
-            talle:
-              variante.talle,
-            color:
-              variante.color,
-          })
-          .select()
-          .single();
-
-        if (
-          errorVariante ||
-          !varianteCreada
-        ) {
-          console.error(
-            "ERROR AL GUARDAR VARIANTE:",
-            errorVariante
-          );
-          continue;
-        }
-
-        const clave =
-          `${variante.talle}__${variante.color}`;
-
-        const fotos =
-          fotosPorColor[clave] || [];
-
-        if (fotos.length > 0) {
-          await subirImagenesDeVariante(
-            fotos,
-            varianteCreada.id
-          );
-        }
-      }
-
-      if (
-        imagenesSeleccionadas.length > 0
-      ) {
-        const imagenesActuales =
-          imagenesProducto[
-            editando.id
-          ] || [];
-
-        const ordenInicial =
-          imagenesActuales.length;
-
-        const urlsNuevas =
-          await subirImagenes(
-            imagenesSeleccionadas,
-            editando.id,
-            ordenInicial
-          );
-
-        if (
-          !editando.image &&
-          urlsNuevas.length > 0
-        ) {
-          await supabase
-            .from("Productos")
-            .update({
-              image:
-                urlsNuevas[0],
-            })
-            .eq(
-              "id",
-              editando.id
-            );
-        }
-      }
-
-      alert(
-        "Producto actualizado correctamente ✅"
-      );
-
-      setEditando(null);
-      setImagenesSeleccionadas([]);
-      setNuevoTalleEditando("");
-    } finally {
-      setGuardando(false);
-      await cargarProductos();
-    }
-  }
-
+  // =========================
   // ELIMINAR PRODUCTO
+  // =========================
+
   async function eliminarProducto(
     id: number
   ) {
@@ -1100,612 +1007,1000 @@ function Admin() {
       );
     }
 
-    const { error } =
-      await supabase
-        .from("Productos")
-        .delete()
-        .eq("id", id);
+    const {
+      error: errorProducto,
+    } = await supabase
+      .from("Productos")
+      .delete()
+      .eq("id", id);
 
-    if (error) {
+    if (errorProducto) {
       console.error(
-        "ERROR AL ELIMINAR:",
-        error
+        "ERROR AL ELIMINAR PRODUCTO:",
+        errorProducto
       );
+
       alert(
-        "No se pudo eliminar el producto."
+        `No se pudo eliminar el producto:\n\n${errorProducto.message}`
       );
+
       return;
     }
 
     alert(
-      "Producto eliminado 🗑️"
+      "Producto eliminado correctamente."
     );
 
+    setEditando(null);
     await cargarProductos();
   }
 
-  // BUSCADOR
-  const productosFiltrados =
-    useMemo(() => {
-      const texto =
-        busqueda
-          .toLowerCase()
-          .trim();
+  // =========================
+  // GUARDAR CAMBIOS
+  // =========================
 
-      if (!texto)
-        return productos;
+  async function guardarCambios() {
+    if (!editando) return;
 
-      return productos.filter(
-        (producto) => {
-          const categorias =
-            producto.category || [];
+    if (!editando.name.trim()) {
+      alert(
+        "El producto necesita un nombre."
+      );
+      return;
+    }
 
-          return (
-            producto.name
-              .toLowerCase()
-              .includes(texto) ||
-            (
-              producto.description ||
-              ""
-            )
-              .toLowerCase()
-              .includes(texto) ||
-            categorias.some(
-              (categoria) =>
-                categoria
-                  .toLowerCase()
-                  .includes(texto)
-            )
+    if (editando.price < 0) {
+      alert(
+        "El precio no puede ser negativo."
+      );
+      return;
+    }
+
+    if (editando.stock < 0) {
+      alert(
+        "El stock no puede ser negativo."
+      );
+      return;
+    }
+
+    setGuardando(true);
+
+    try {
+      const {
+        error,
+      } = await supabase
+        .from("Productos")
+        .update({
+          name:
+            editando.name.trim(),
+          description:
+            editando.description?.trim() ||
+            "",
+          price:
+            Number(editando.price),
+          image:
+            editando.image || "",
+          category:
+            editando.category || [],
+          stock:
+            Number(editando.stock),
+          tiene_talle:
+            editando.tiene_talle,
+          talles:
+            editando.tiene_talle
+              ? editando.talles
+              : [],
+        })
+        .eq(
+          "id",
+          editando.id
+        );
+
+      if (error) {
+        console.error(
+          "ERROR AL GUARDAR PRODUCTO:",
+          error
+        );
+
+        alert(
+          `No se pudieron guardar los cambios:\n\n${error.message}`
+        );
+
+        return;
+      }
+
+      // =========================
+      // ACTUALIZAR VARIANTES EXISTENTES
+      // =========================
+
+      const variantesExistentes =
+        variantes.filter(
+          (variante) =>
+            variante.producto_id ===
+              editando.id &&
+            variante.id !== undefined
+        );
+
+      for (const variante of variantesExistentes) {
+        const {
+          error: errorPrecio,
+        } = await supabase
+          .from("ProductoVariantes")
+          .update({
+            precio:
+              Number(
+                variante.precio || 0
+              ),
+          })
+          .eq(
+            "id",
+            variante.id
+          );
+
+        if (errorPrecio) {
+          console.error(
+            "ERROR AL ACTUALIZAR PRECIO DE VARIANTE:",
+            errorPrecio
           );
         }
-      );
-    }, [
-      productos,
-      busqueda,
-    ]);
 
-  // PRECIO
-  function formatoPrecio(
-    precio: number
-  ) {
-    return new Intl.NumberFormat(
-      "es-AR"
-    ).format(precio);
+        /*
+         * Si elegimos fotos nuevas para esta variante,
+         * las subimos ahora.
+         */
+        const clave =
+          claveVariante(variante);
+
+        const fotos =
+          fotosNuevasVariantes[clave] || [];
+
+        if (
+          variante.id &&
+          fotos.length > 0
+        ) {
+          await subirImagenesDeVariante(
+            fotos,
+            variante.id
+          );
+        }
+      }
+
+      // =========================
+      // INSERTAR VARIANTES NUEVAS
+      // =========================
+
+      const variantesNuevas =
+        variantes.filter(
+          (variante) =>
+            variante.producto_id ===
+              editando.id &&
+            variante.id === undefined
+        );
+
+      for (const variante of variantesNuevas) {
+        const {
+          data: varianteCreada,
+          error: errorVariante,
+        } = await supabase
+          .from("ProductoVariantes")
+          .insert({
+            producto_id:
+              editando.id,
+            talle:
+              variante.talle,
+            color:
+              variante.color,
+            precio:
+              Number(
+                variante.precio ||
+                  editando.price ||
+                  0
+              ),
+          })
+          .select()
+          .single();
+
+        if (
+          errorVariante ||
+          !varianteCreada
+        ) {
+          console.error(
+            "ERROR AL INSERTAR VARIANTE:",
+            errorVariante
+          );
+
+          continue;
+        }
+
+        /*
+         * Subimos las fotos que se hayan elegido
+         * para la variante nueva.
+         */
+        const clave =
+          claveVariante(variante);
+
+        const fotos =
+          fotosNuevasVariantes[clave] || [];
+
+        if (fotos.length > 0) {
+          await subirImagenesDeVariante(
+            fotos,
+            varianteCreada.id!
+          );
+        }
+
+        // Reemplazamos la variante temporal
+        // por la variante real de Supabase.
+        setVariantes(
+          (variantesActuales) =>
+            variantesActuales.map(
+              (v) => {
+                if (
+                  v.id === undefined &&
+                  v.producto_id ===
+                    variante.producto_id &&
+                  v.talle ===
+                    variante.talle &&
+                  v.color ===
+                    variante.color
+                ) {
+                  return varianteCreada as Variante;
+                }
+
+                return v;
+              }
+            )
+        );
+      }
+
+      // =========================
+      // IMÁGENES GENERALES
+      // =========================
+
+      const imagenesActuales =
+        imagenesProducto[
+          editando.id
+        ] || [];
+
+      if (
+        imagenesSeleccionadas.length > 0
+      ) {
+        await subirImagenes(
+          imagenesSeleccionadas,
+          editando.id,
+          imagenesActuales.length
+        );
+      }
+
+      alert(
+        "Cambios guardados correctamente ✅"
+      );
+
+      setImagenesSeleccionadas([]);
+      setFotosNuevasVariantes({});
+      setEditando(null);
+      setNuevoTalleEditando("");
+      setNuevoColor("");
+      setTalleParaColor("");
+
+      await cargarProductos();
+    } finally {
+      setGuardando(false);
+    }
+  }
+  // =========================
+  // ABRIR EDICIÓN
+  // =========================
+
+  function abrirEdicion(producto: Producto) {
+    setEditando({
+      ...producto,
+      category: producto.category || [],
+      talles: producto.talles || [],
+    });
+
+    setMostrarNuevo(false);
+    setImagenesSeleccionadas([]);
+    setFotosNuevasVariantes({});
+    setNuevoTalleEditando("");
+    setNuevoColor("");
+    setTalleParaColor("");
   }
 
+  // =========================
+  // CANCELAR EDICIÓN
+  // =========================
+
+  function cancelarEdicion() {
+    setEditando(null);
+    setImagenesSeleccionadas([]);
+    setFotosNuevasVariantes({});
+    setNuevoTalleEditando("");
+    setNuevoColor("");
+    setTalleParaColor("");
+  }
+
+  // =========================
+  // AGREGAR COLOR AL EDITAR
+  // =========================
+
+  function agregarColorEditando(talle: string) {
+    if (!editando) return;
+
+    const color = nuevoColor.trim();
+
+    if (!color) {
+      alert("Ingresá un color.");
+      return;
+    }
+
+    const yaExiste = variantes.some(
+      (v) =>
+        v.producto_id === editando.id &&
+        v.talle === talle &&
+        v.color.toLowerCase() === color.toLowerCase()
+    );
+
+    if (yaExiste) {
+      alert("Ese color ya existe para ese talle.");
+      return;
+    }
+
+    const nuevaVariante: Variante = {
+      producto_id: editando.id,
+      talle,
+      color,
+      precio: Number(editando.price || 0),
+    };
+
+    setVariantes((actuales) => [
+      ...actuales,
+      nuevaVariante,
+    ]);
+
+    setNuevoColor("");
+    setTalleParaColor("");
+  }
+
+  // =========================
+  // ELIMINAR VARIANTE
+  // =========================
+
+  async function eliminarVariante(variante: Variante) {
+    const confirmar = window.confirm(
+      `¿Querés eliminar la variante ${variante.talle} - ${variante.color}?`
+    );
+
+    if (!confirmar) return;
+
+    // Si todavía no existe en Supabase,
+    // solamente la quitamos de la pantalla.
+    if (!variante.id) {
+      setVariantes((actuales) =>
+        actuales.filter((v) => v !== variante)
+      );
+
+      const clave = claveVariante(variante);
+
+      setFotosNuevasVariantes((actuales) => {
+        const copia = { ...actuales };
+        delete copia[clave];
+        return copia;
+      });
+
+      return;
+    }
+
+    // Eliminar fotos de la variante
+    const { error: errorFotos } = await supabase
+      .from("ProductoVarianteImagenes")
+      .delete()
+      .eq("variante_id", variante.id);
+
+    if (errorFotos) {
+      console.error(
+        "ERROR AL ELIMINAR FOTOS DE VARIANTE:",
+        errorFotos
+      );
+    }
+
+    // Eliminar variante
+    const { error } = await supabase
+      .from("ProductoVariantes")
+      .delete()
+      .eq("id", variante.id);
+
+    if (error) {
+      console.error(
+        "ERROR AL ELIMINAR VARIANTE:",
+        error
+      );
+
+      alert(
+        `No se pudo eliminar la variante:\n\n${error.message}`
+      );
+
+      return;
+    }
+
+    setVariantes((actuales) =>
+      actuales.filter(
+        (v) => v.id !== variante.id
+      )
+    );
+
+    setImagenesVariantes((actuales) => {
+      const copia = { ...actuales };
+
+      if (variante.id) {
+        delete copia[variante.id];
+      }
+
+      return copia;
+    });
+
+    await cargarVariantes();
+  }
+
+  // =========================
+  // PRODUCTOS FILTRADOS
+  // =========================
+
+  const productosFiltrados = useMemo(() => {
+    const texto = busqueda
+      .trim()
+      .toLowerCase();
+
+    if (!texto) {
+      return productos;
+    }
+
+    return productos.filter((producto) => {
+      const nombre =
+        producto.name?.toLowerCase() || "";
+
+      const descripcion =
+        producto.description?.toLowerCase() || "";
+
+      const categorias =
+        producto.category
+          ?.join(" ")
+          .toLowerCase() || "";
+
+      return (
+        nombre.includes(texto) ||
+        descripcion.includes(texto) ||
+        categorias.includes(texto)
+      );
+    });
+  }, [productos, busqueda]);
+
+  // =========================
+  // ESTILOS
+  // =========================
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%",
+    padding: "11px 12px",
+    border: "1px solid #d8ddd8",
+    borderRadius: "8px",
+    fontSize: "14px",
+    boxSizing: "border-box",
+    background: "#fff",
+  };
+
+  const labelStyle: React.CSSProperties = {
+    display: "block",
+    fontSize: "14px",
+    fontWeight: 600,
+    marginBottom: "6px",
+    color: "#263d2d",
+  };
+
+  const buttonStyle: React.CSSProperties = {
+    border: "none",
+    borderRadius: "8px",
+    padding: "10px 15px",
+    cursor: "pointer",
+    fontWeight: 600,
+  };
+
+  // =========================
   // CARGANDO SESIÓN
+  // =========================
+
   if (cargandoSesion) {
     return (
       <div
         style={{
           minHeight: "100vh",
           display: "flex",
-          alignItems:
-            "center",
-          justifyContent:
-            "center",
-          fontFamily:
-            "Arial, sans-serif",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#f0ead2",
+          color: "#263d2d",
         }}
       >
-        Verificando acceso...
+        Cargando...
       </div>
     );
   }
 
+  // =========================
   // LOGIN
+  // =========================
+
   if (!sesion) {
     return (
       <div
         style={{
           minHeight: "100vh",
-          background:
-            "#f5f6f3",
+          background: "#f0ead2",
           display: "flex",
-          alignItems:
-            "center",
-          justifyContent:
-            "center",
+          alignItems: "center",
+          justifyContent: "center",
           padding: "20px",
-          fontFamily:
-            "Arial, sans-serif",
+          boxSizing: "border-box",
         }}
       >
         <div
           style={{
-            background:
-              "white",
             width: "100%",
-            maxWidth:
-              "400px",
-            padding:
-              "35px",
-            borderRadius:
-              "20px",
+            maxWidth: "400px",
+            background: "#fff",
+            borderRadius: "14px",
+            padding: "30px",
             boxShadow:
-              "0 3px 20px rgba(0,0,0,0.08)",
+              "0 8px 30px rgba(0,0,0,0.08)",
+            boxSizing: "border-box",
           }}
         >
           <h1
             style={{
               marginTop: 0,
+              color: "#263d2d",
+              textAlign: "center",
             }}
           >
-            LuckePet 🐾
+            LuckePet
           </h1>
 
           <p
             style={{
-              color: "#777",
+              textAlign: "center",
+              color: "#666",
+              marginBottom: "25px",
             }}
           >
             Panel de administración
           </p>
 
+          <label style={labelStyle}>
+            Email
+          </label>
+
           <input
             type="email"
-            placeholder="Email"
             value={email}
             onChange={(e) =>
-              setEmail(
-                e.target.value
-              )
+              setEmail(e.target.value)
             }
-            style={inputStyle}
+            placeholder="Tu email"
+            style={{
+              ...inputStyle,
+              marginBottom: "15px",
+            }}
           />
+
+          <label style={labelStyle}>
+            Contraseña
+          </label>
 
           <input
             type="password"
-            placeholder="Contraseña"
             value={password}
             onChange={(e) =>
-              setPassword(
-                e.target.value
-              )
+              setPassword(e.target.value)
             }
+            placeholder="Tu contraseña"
+            style={{
+              ...inputStyle,
+              marginBottom: "20px",
+            }}
             onKeyDown={(e) => {
-              if (
-                e.key ===
-                "Enter"
-              ) {
+              if (e.key === "Enter") {
                 iniciarSesion();
               }
             }}
-            style={inputStyle}
           />
 
           <button
-            onClick={
-              iniciarSesion
-            }
-            disabled={
-              iniciandoSesion
-            }
+            onClick={iniciarSesion}
+            disabled={iniciandoSesion}
             style={{
-              ...primaryButton,
+              ...buttonStyle,
               width: "100%",
-              marginTop: "5px",
+              background: "#263d2d",
+              color: "#fff",
+              opacity: iniciandoSesion
+                ? 0.7
+                : 1,
             }}
           >
             {iniciandoSesion
               ? "Ingresando..."
-              : "🔐 Iniciar sesión"}
+              : "Ingresar"}
           </button>
         </div>
       </div>
     );
   }
 
-  // PANEL
+  // =========================
+  // ADMIN
+  // =========================
+
   return (
     <div
       style={{
         minHeight: "100vh",
-        background:
-          "#f5f6f3",
-        padding: "30px",
-        fontFamily:
-          "Arial, sans-serif",
-        color: "#222",
+        background: "#f0ead2",
+        padding: "20px",
+        boxSizing: "border-box",
       }}
     >
       <div
         style={{
-          maxWidth:
-            "1200px",
-          margin:
-            "0 auto",
+          maxWidth: "1200px",
+          margin: "0 auto",
         }}
       >
-        {/* HEADER */}
+        {/* ENCABEZADO */}
+
         <div
           style={{
             display: "flex",
-            justifyContent:
-              "space-between",
-            alignItems:
-              "center",
+            justifyContent: "space-between",
+            alignItems: "center",
             gap: "15px",
-            marginBottom:
-              "25px",
-            flexWrap:
-              "wrap",
+            flexWrap: "wrap",
+            marginBottom: "25px",
           }}
         >
           <div>
             <h1
               style={{
-                margin:
-                  "0 0 5px",
-                color:
-                  "#263d2d",
+                margin: 0,
+                color: "#263d2d",
+                fontSize: "28px",
               }}
             >
-              LuckePet 🐾
+              LuckePet
             </h1>
 
             <p
               style={{
-                margin: 0,
-                color:
-                  "#777",
+                margin: "5px 0 0",
+                color: "#666",
               }}
             >
-              Panel de administración
+              Administrar productos
             </p>
           </div>
 
-          <button
-            onClick={
-              cerrarSesion
-            }
-            style={
-              secondaryButton
-            }
-          >
-            Cerrar sesión
-          </button>
-        </div>
-
-        {/* ESTADÍSTICAS */}
-        <div
-          style={{
-            display:
-              "grid",
-            gridTemplateColumns:
-              "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: "15px",
-            marginBottom:
-              "25px",
-          }}
-        >
-          <div
-            style={
-              statCard
-            }
-          >
-            <strong>
-              Productos
-            </strong>
-
-            <div
-              style={{
-                fontSize:
-                  "28px",
-                fontWeight:
-                  "bold",
-                marginTop:
-                  "8px",
-                color:
-                  "#263d2d",
-              }}
-            >
-              {
-                productos.length
-              }
-            </div>
-          </div>
-
-          <div
-            style={
-              statCard
-            }
-          >
-            <strong>
-              Stock total
-            </strong>
-
-            <div
-              style={{
-                fontSize:
-                  "28px",
-                fontWeight:
-                  "bold",
-                marginTop:
-                  "8px",
-                color:
-                  "#263d2d",
-              }}
-            >
-              {productos.reduce(
-                (
-                  total,
-                  producto
-                ) =>
-                  total +
-                  (Number(
-                    producto.stock
-                  ) || 0),
-                0
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* NUEVO PRODUCTO */}
-        <div
-          style={{
-            background:
-              "white",
-            padding:
-              "20px",
-            borderRadius:
-              "18px",
-            marginBottom:
-              "20px",
-            boxShadow:
-              "0 3px 15px rgba(0,0,0,0.06)",
-          }}
-        >
           <div
             style={{
-              display:
-                "flex",
-              justifyContent:
-                "space-between",
-              alignItems:
-                "center",
+              display: "flex",
               gap: "10px",
-              flexWrap:
-                "wrap",
+              flexWrap: "wrap",
             }}
           >
-            <h2
-              style={{
-                margin:
-                  0,
-                fontSize:
-                  "20px",
-              }}
-            >
-              Agregar producto
-            </h2>
-
             <button
               onClick={() => {
-                setMostrarNuevo(
-                  !mostrarNuevo
-                );
+                setMostrarNuevo(true);
+                setEditando(null);
 
-                if (
-                  !mostrarNuevo
-                ) {
-                  setEditando(
-                    null
-                  );
-                }
+                setNuevoProducto({
+                  ...productoVacio,
+                  talles: [],
+                });
+
+                setImagenesSeleccionadas([]);
+                setColoresPorTalle({});
+                setFotosPorColor({});
+                setFotosNuevasVariantes({});
+                setNuevoTalle("");
+                setNuevoColor("");
+                setTalleParaColor("");
               }}
-              style={
-                primaryButton
-              }
+              style={{
+                ...buttonStyle,
+                background: "#263d2d",
+                color: "#fff",
+              }}
             >
-              {mostrarNuevo
-                ? "Cerrar"
-                : "＋ Nuevo producto"}
+              + Nuevo producto
+            </button>
+
+            <button
+              onClick={cerrarSesion}
+              style={{
+                ...buttonStyle,
+                background: "#fff",
+                color: "#263d2d",
+                border: "1px solid #263d2d",
+              }}
+            >
+              Cerrar sesión
             </button>
           </div>
+        </div>
 
-          {mostrarNuevo && (
+        {/* BUSCADOR */}
+
+        <div
+          style={{
+            background: "#fff",
+            padding: "15px",
+            borderRadius: "12px",
+            marginBottom: "20px",
+          }}
+        >
+          <input
+            type="text"
+            placeholder="Buscar producto..."
+            value={busqueda}
+            onChange={(e) =>
+              setBusqueda(e.target.value)
+            }
+            style={inputStyle}
+          />
+        </div>
+
+        {/* FORMULARIO NUEVO */}
+
+        {mostrarNuevo && (
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: "14px",
+              padding: "20px",
+              marginBottom: "25px",
+              boxShadow:
+                "0 4px 20px rgba(0,0,0,0.06)",
+            }}
+          >
             <div
               style={{
-                marginTop:
-                  "20px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "20px",
+                gap: "10px",
               }}
             >
-              <input
-                value={
-                  nuevoProducto.name
-                }
-                onChange={(e) =>
-                  setNuevoProducto({
-                    ...nuevoProducto,
-                    name:
-                      e.target.value,
-                  })
-                }
-                placeholder="Nombre del producto"
-                style={
-                  inputStyle
-                }
-              />
-
-              {/* CATEGORÍAS */}
-              <div
+              <h2
                 style={{
-                  marginBottom:
-                    "12px",
+                  margin: 0,
+                  color: "#263d2d",
                 }}
               >
-                <label
-                  style={{
-                    display:
-                      "block",
-                    marginBottom:
-                      "8px",
-                    fontWeight:
-                      "bold",
-                  }}
-                >
-                  Categorías
+                Nuevo producto
+              </h2>
+
+              <button
+                onClick={() => {
+                  setMostrarNuevo(false);
+                  setImagenesSeleccionadas([]);
+                  setColoresPorTalle({});
+                  setFotosPorColor({});
+                  setFotosNuevasVariantes({});
+                }}
+                style={{
+                  ...buttonStyle,
+                  background: "#eee",
+                  color: "#333",
+                }}
+              >
+                Cancelar
+              </button>
+            </div>
+
+            {/* DATOS BÁSICOS */}
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "15px",
+              }}
+            >
+              <div>
+                <label style={labelStyle}>
+                  Nombre
                 </label>
 
-                <div
-                  style={{
-                    display:
-                      "flex",
-                    flexWrap:
-                      "wrap",
-                    gap: "8px",
-                  }}
-                >
-                  {categoriasDisponibles.map(
-                    (categoria) => {
-                      const categoriasActuales =
-                        nuevoProducto.category ||
-                        [];
-
-                      const seleccionada =
-                        categoriasActuales.includes(
-                          categoria
-                        );
-
-                      return (
-                        <label
-                          key={
-                            categoria
-                          }
-                          style={{
-                            display:
-                              "flex",
-                            alignItems:
-                              "center",
-                            gap: "7px",
-                            padding:
-                              "9px 12px",
-                            borderRadius:
-                              "10px",
-                            border:
-                              seleccionada
-                                ? "2px solid #263d2d"
-                                : "1px solid #ddd",
-                            background:
-                              seleccionada
-                                ? "#edf2ed"
-                                : "#fff",
-                            color:
-                              "#263d2d",
-                            cursor:
-                              "pointer",
-                            fontWeight:
-                              seleccionada
-                                ? "bold"
-                                : "normal",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={
-                              seleccionada
-                            }
-                            onChange={() =>
-                              setNuevoProducto(
-                                {
-                                  ...nuevoProducto,
-                                  category:
-                                    alternarCategoria(
-                                      categoriasActuales,
-                                      categoria
-                                    ),
-                                }
-                              )
-                            }
-                          />
-
-                          {categoria}
-                        </label>
-                      );
-                    }
-                  )}
-                </div>
+                <input
+                  value={nuevoProducto.name}
+                  onChange={(e) =>
+                    setNuevoProducto({
+                      ...nuevoProducto,
+                      name: e.target.value,
+                    })
+                  }
+                  style={inputStyle}
+                />
               </div>
 
+              <div>
+                <label style={labelStyle}>
+                  Precio general
+                </label>
+
+                <input
+                  type="number"
+                  min="0"
+                  value={nuevoProducto.price}
+                  onChange={(e) =>
+                    setNuevoProducto({
+                      ...nuevoProducto,
+                      price: Number(
+                        e.target.value
+                      ),
+                    })
+                  }
+                  style={inputStyle}
+                />
+              </div>
+
+              <div>
+                <label style={labelStyle}>
+                  Stock
+                </label>
+
+                <input
+                  type="number"
+                  min="0"
+                  value={nuevoProducto.stock}
+                  onChange={(e) =>
+                    setNuevoProducto({
+                      ...nuevoProducto,
+                      stock: Number(
+                        e.target.value
+                      ),
+                    })
+                  }
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginTop: "15px" }}>
+              <label style={labelStyle}>
+                Descripción
+              </label>
+
               <textarea
-                value={
-                  nuevoProducto.description
-                }
+                value={nuevoProducto.description}
                 onChange={(e) =>
                   setNuevoProducto({
                     ...nuevoProducto,
-                    description:
-                      e.target.value,
+                    description: e.target.value,
                   })
                 }
-                placeholder="Descripción del producto"
+                rows={4}
                 style={{
                   ...inputStyle,
-                  minHeight:
-                    "90px",
-                  resize:
-                    "vertical",
+                  resize: "vertical",
                 }}
               />
+            </div>
+
+            {/* CATEGORÍAS */}
+
+            <div style={{ marginTop: "20px" }}>
+              <label style={labelStyle}>
+                Categorías
+              </label>
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: "15px",
+                  flexWrap: "wrap",
+                }}
+              >
+                {categoriasDisponibles.map(
+                  (categoria) => (
+                    <label
+                      key={categoria}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={nuevoProducto.category.includes(
+                          categoria
+                        )}
+                        onChange={() =>
+                          setNuevoProducto({
+                            ...nuevoProducto,
+                            category:
+                              alternarCategoria(
+                                nuevoProducto.category,
+                                categoria
+                              ),
+                          })
+                        }
+                      />
+
+                      {categoria}
+                    </label>
+                  )
+                )}
+              </div>
+            </div>
+
+            {/* IMÁGENES GENERALES */}
+
+            <div style={{ marginTop: "20px" }}>
+              <label style={labelStyle}>
+                Imágenes generales
+              </label>
 
               <input
-                type="number"
-                min="0"
-                value={
-                  nuevoProducto.price
-                }
+                type="file"
+                accept="image/*"
+                multiple
                 onChange={(e) =>
-                  setNuevoProducto({
-                    ...nuevoProducto,
-                    price:
-                      Number(
-                        e.target.value
-                      ),
-                  })
+                  setImagenesSeleccionadas(
+                    Array.from(
+                      e.target.files || []
+                    )
+                  )
                 }
-                placeholder="Precio"
-                style={
-                  inputStyle
-                }
+                style={inputStyle}
               />
 
-              <input
-                type="number"
-                min="0"
-                value={
-                  nuevoProducto.stock
-                }
-                onChange={(e) =>
-                  setNuevoProducto({
-                    ...nuevoProducto,
-                    stock:
-                      Number(
-                        e.target.value
-                      ),
-                  })
-                }
-                placeholder="Stock"
-                style={
-                  inputStyle
-                }
-              />
+              {imagenesSeleccionadas.length >
+                0 && (
+                <p
+                  style={{
+                    fontSize: "13px",
+                    color: "#666",
+                  }}
+                >
+                  {
+                    imagenesSeleccionadas.length
+                  }{" "}
+                  imagen(es) seleccionada(s)
+                </p>
+              )}
+            </div>
 
-              {/* TALLES */}
+            {/* TALLES */}
+
+            <div
+              style={{
+                marginTop: "25px",
+                paddingTop: "20px",
+                borderTop:
+                  "1px solid #e5e5e5",
+              }}
+            >
               <label
                 style={{
-                  display:
-                    "flex",
-                  alignItems:
-                    "center",
-                  gap: "10px",
-                  cursor:
-                    "pointer",
-                  fontWeight:
-                    "bold",
-                  marginBottom:
-                    "12px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  cursor: "pointer",
+                  fontWeight: 600,
+                  color: "#263d2d",
                 }}
               >
                 <input
@@ -1714,242 +2009,385 @@ function Admin() {
                     nuevoProducto.tiene_talle
                   }
                   onChange={(e) =>
-                    setNuevoProducto(
-                      {
-                        ...nuevoProducto,
-                        tiene_talle:
-                          e.target.checked,
-                        talles:
-                          e.target.checked
-                            ? nuevoProducto.talles
-                            : [],
-                      }
-                    )
+                    setNuevoProducto({
+                      ...nuevoProducto,
+                      tiene_talle:
+                        e.target.checked,
+                    })
                   }
-                  style={{
-                    width:
-                      "18px",
-                    height:
-                      "18px",
-                  }}
                 />
 
-                Este producto tiene talles
+                Este producto tiene talles/colores
               </label>
+            </div>
 
-              {nuevoProducto.tiene_talle && (
-                <>
-                  <div
+            {nuevoProducto.tiene_talle && (
+              <div
+                style={{
+                  marginTop: "20px",
+                  padding: "15px",
+                  borderRadius: "10px",
+                  background: "#f8f8f4",
+                }}
+              >
+                <h3
+                  style={{
+                    marginTop: 0,
+                    color: "#263d2d",
+                  }}
+                >
+                  Talles y variantes
+                </h3>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "8px",
+                    marginBottom: "20px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <input
+                    value={nuevoTalle}
+                    onChange={(e) =>
+                      setNuevoTalle(
+                        e.target.value
+                      )
+                    }
+                    placeholder="Ej: S, M, L"
                     style={{
-                      display:
-                        "flex",
-                      gap: "8px",
-                      alignItems:
-                        "center",
-                      marginBottom:
-                        "10px",
+                      ...inputStyle,
+                      flex: 1,
+                      minWidth: "180px",
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        agregarTalleNuevo();
+                      }
+                    }}
+                  />
+
+                  <button
+                    onClick={
+                      agregarTalleNuevo
+                    }
+                    style={{
+                      ...buttonStyle,
+                      background: "#263d2d",
+                      color: "#fff",
                     }}
                   >
-                    <input
-                      type="text"
-                      value={
-                        nuevoTalle
-                      }
-                      onChange={(e) =>
-                        setNuevoTalle(
-                          e.target.value
-                        )
-                      }
-                      onKeyDown={(e) => {
-                        if (
-                          e.key ===
-                          "Enter"
-                        ) {
-                          e.preventDefault();
-                          agregarTalleNuevo();
-                        }
-                      }}
-                      placeholder="Ej: M"
-                      style={{
-                        ...inputStyle,
-                        marginBottom:
-                          0,
-                      }}
-                    />
+                    + Agregar talle
+                  </button>
+                </div>
 
-                    <button
-                      type="button"
-                      onClick={
-                        agregarTalleNuevo
-                      }
-                      style={
-                        primaryButton
-                      }
-                    >
-                      ＋ Agregar
-                    </button>
-                  </div>
+                {nuevoProducto.talles.map(
+                  (talle) => {
+                    const colores =
+                      coloresPorTalle[talle] || [];
 
-                  {nuevoProducto.talles
-                    .length > 0 && (
-                    <div
-                      style={{
-                        display:
-                          "flex",
-                        flexWrap:
-                          "wrap",
-                        gap: "8px",
-                        marginBottom:
-                          "15px",
-                      }}
-                    >
-                      {nuevoProducto.talles.map(
-                        (talle) => (
-                          <span
-                            key={
-                              talle
-                            }
-                            style={
-                              talleTag
-                            }
+                    return (
+                      <div
+                        key={talle}
+                        style={{
+                          background: "#fff",
+                          borderRadius: "10px",
+                          padding: "15px",
+                          marginBottom: "15px",
+                          border:
+                            "1px solid #e1e1e1",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent:
+                              "space-between",
+                            alignItems: "center",
+                            gap: "10px",
+                            marginBottom: "12px",
+                          }}
+                        >
+                          <strong
+                            style={{
+                              color: "#263d2d",
+                              fontSize: "16px",
+                            }}
                           >
-                            {talle}
+                            Talle: {talle}
+                          </strong>
 
-                            <button
-                              type="button"
-                              onClick={() =>
-                                eliminarTalleNuevo(
-                                  talle
-                                )
-                              }
-                              style={
-                                talleDeleteButton
-                              }
-                            >
-                              ×
-                            </button>
-                          </span>
-                        )
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
+                          <button
+                            onClick={() =>
+                              eliminarTalleNuevo(
+                                talle
+                              )
+                            }
+                            style={{
+                              ...buttonStyle,
+                              background:
+                                "#f1dede",
+                              color: "#9b3333",
+                              padding:
+                                "7px 10px",
+                            }}
+                          >
+                            Eliminar talle
+                          </button>
+                        </div>
 
-              {/* FOTOS */}
-              <label>
-                Imágenes del producto
-              </label>
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "8px",
+                            flexWrap: "wrap",
+                            marginBottom: "15px",
+                          }}
+                        >
+                          <input
+                            value={
+                              talleParaColor ===
+                              talle
+                                ? nuevoColor
+                                : ""
+                            }
+                            onFocus={() =>
+                              setTalleParaColor(
+                                talle
+                              )
+                            }
+                            onChange={(e) => {
+                              setTalleParaColor(
+                                talle
+                              );
+                              setNuevoColor(
+                                e.target.value
+                              );
+                            }}
+                            placeholder="Ej: Negro, Rojo..."
+                            style={{
+                              ...inputStyle,
+                              flex: 1,
+                              minWidth:
+                                "180px",
+                            }}
+                          />
 
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={(e) => {
-                  const files =
-                    Array.from(
-                      e.target.files ||
-                        []
+                          <button
+                            onClick={() =>
+                              agregarColorATalle(
+                                talle
+                              )
+                            }
+                            style={{
+                              ...buttonStyle,
+                              background:
+                                "#e5eadf",
+                              color: "#263d2d",
+                            }}
+                          >
+                            + Agregar color
+                          </button>
+                        </div>
+
+                        {colores.map(
+                          (color) => {
+                            const clave =
+                              `${talle}__${color}`;
+
+                    const fotos = fotosPorColor[clave] || [];
+
+                            return (
+                              <div
+                                key={clave}
+                                style={{
+                                  border:
+                                    "1px solid #ddd",
+                                  borderRadius:
+                                    "8px",
+                                  padding: "12px",
+                                  marginTop:
+                                    "10px",
+                                  background:
+                                    "#fafafa",
+                                }}
+                              >
+                                <strong
+                                  style={{
+                                    color:
+                                      "#263d2d",
+                                  }}
+                                >
+                                  🎨 {color}
+                                </strong>
+
+                                <div
+                                  style={{
+                                    marginTop:
+                                      "10px",
+                                  }}
+                                >
+                                  <label
+                                    style={{
+                                      ...labelStyle,
+                                      fontSize:
+                                        "13px",
+                                    }}
+                                  >
+                                    Precio de esta
+                                    combinación
+                                  </label>
+
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={
+                                      nuevoProducto.price
+                                    }
+                                    onChange={(
+                                      e
+                                    ) =>
+                                      setNuevoProducto({
+                                        ...nuevoProducto,
+                                        price:
+                                          Number(
+                                            e.target
+                                              .value
+                                          ),
+                                      })
+                                    }
+                                    style={{
+                                      ...inputStyle,
+                                      maxWidth:
+                                        "220px",
+                                    }}
+                                  />
+                                </div>
+
+                                <div
+                                  style={{
+                                    marginTop:
+                                      "10px",
+                                  }}
+                                >
+                                  <label
+                                    style={{
+                                      ...labelStyle,
+                                      fontSize:
+                                        "13px",
+                                    }}
+                                  >
+                                    Fotos de esta
+                                    combinación
+                                  </label>
+
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    multiple
+                                    onChange={(
+                                      e
+                                    ) =>
+                                      seleccionarFotosColor(
+                                        talle,
+                                        color,
+                                        Array.from(
+                                          e.target
+                                            .files ||
+                                            []
+                                        )
+                                      )
+                                    }
+                                    style={
+                                      inputStyle
+                                    }
+                                  />
+
+                                  {fotos.length >
+                                    0 && (
+                                    <p
+                                      style={{
+                                        fontSize:
+                                          "12px",
+                                        color:
+                                          "#666",
+                                      }}
+                                    >
+                                      {
+                                        fotos.length
+                                      }{" "}
+                                      imagen(es)
+                                      seleccionada(s)
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          }
+                        )}
+                      </div>
                     );
+                  }
+                )}
+              </div>
+            )}
 
-                  setImagenesSeleccionadas(
-                    files
-                  );
-                }}
-                style={
-                  inputStyle
-                }
-              />
-
-              {imagenesSeleccionadas.length >
-                0 && (
-                <p
-                  style={{
-                    color:
-                      "#666",
-                  }}
-                >
-                  {
-                    imagenesSeleccionadas.length
-                  }{" "}
-                  imagen(es)
-                  seleccionada(s)
-                </p>
-              )}
-
-              {subiendoImagen && (
-                <p
-                  style={{
-                    color:
-                      "#777",
-                  }}
-                >
-                  Subiendo imágenes...
-                </p>
-              )}
-
+            <div
+              style={{
+                display: "flex",
+                justifyContent:
+                  "flex-end",
+                marginTop: "20px",
+              }}
+            >
               <button
-                onClick={
-                  crearProducto
-                }
+                onClick={crearProducto}
                 disabled={
                   guardando ||
                   subiendoImagen
                 }
                 style={{
-                  ...primaryButton,
-                  marginTop:
-                    "5px",
+                  ...buttonStyle,
+                  background: "#263d2d",
+                  color: "#fff",
+                  padding: "12px 22px",
                 }}
               >
                 {guardando
-                  ? "Creando..."
-                  : "＋ Crear producto"}
+                  ? "Guardando..."
+                  : "Crear producto"}
               </button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
+        {/* =========================
+            LISTA DE PRODUCTOS
+        ========================= */}
 
-        {/* BUSCADOR */}
-        <div
-          style={{
-            background:
-              "white",
-            padding:
-              "15px",
-            borderRadius:
-              "15px",
-            marginBottom:
-              "20px",
-            boxShadow:
-              "0 3px 15px rgba(0,0,0,0.05)",
-          }}
-        >
-          <input
-            value={
-              busqueda
-            }
-            onChange={(e) =>
-              setBusqueda(
-                e.target.value
-              )
-            }
-            placeholder="🔎 Buscar por nombre, descripción o categoría..."
-            style={{
-              ...inputStyle,
-              margin:
-                0,
-            }}
-          />
-        </div>
-        {/* PRODUCTOS */}
         {cargando ? (
-          <div style={mensajeCard}>
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: "12px",
+              padding: "30px",
+              textAlign: "center",
+              color: "#666",
+            }}
+          >
             Cargando productos...
           </div>
         ) : productosFiltrados.length === 0 ? (
-          <div style={mensajeCard}>
-            No encontramos productos.
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: "12px",
+              padding: "30px",
+              textAlign: "center",
+              color: "#666",
+            }}
+          >
+            No se encontraron productos.
           </div>
         ) : (
           <div
@@ -1957,1302 +2395,979 @@ function Admin() {
               display: "grid",
               gridTemplateColumns:
                 "repeat(auto-fit, minmax(280px, 1fr))",
-              gap: "20px",
+              gap: "18px",
             }}
           >
-            {productosFiltrados.map(
-              (producto) => {
-                const imagenes =
-                  imagenesProducto[
-                    producto.id
-                  ] || [];
+            {productosFiltrados.map((producto) => {
+             
 
-                return (
+              return (
+                <div
+                  key={producto.id}
+                  style={{
+                    background: "#fff",
+                    borderRadius: "14px",
+                    overflow: "hidden",
+                    boxShadow:
+                      "0 4px 15px rgba(0,0,0,0.06)",
+                  }}
+                >
                   <div
-                    key={
-                      producto.id
-                    }
                     style={{
-                      background:
-                        "white",
-                      borderRadius:
-                        "18px",
-                      overflow:
-                        "hidden",
-                      boxShadow:
-                        "0 3px 15px rgba(0,0,0,0.06)",
+                      height: "220px",
+                      background: "#f5f5f5",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      overflow: "hidden",
                     }}
                   >
-                    {/* IMAGEN PRINCIPAL */}
                     {producto.image ? (
                       <img
-                        src={
-                          producto.image
-                        }
-                        alt={
-                          producto.name
-                        }
+                        src={producto.image}
+                        alt={producto.name}
                         style={{
-                          width:
-                            "100%",
-                          height:
-                            "220px",
-                          objectFit:
-                            "cover",
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
                         }}
                       />
                     ) : (
-                      <div
-                        style={{
-                          height:
-                            "220px",
-                          background:
-                            "#eeeeee",
-                          display:
-                            "flex",
-                          alignItems:
-                            "center",
-                          justifyContent:
-                            "center",
-                          color:
-                            "#999",
-                        }}
-                      >
+                      <span style={{ color: "#999" }}>
                         Sin imagen
-                      </div>
+                      </span>
                     )}
+                  </div>
+
+                  <div style={{ padding: "15px" }}>
+                    <h3
+                      style={{
+                        margin: "0 0 8px",
+                        color: "#263d2d",
+                      }}
+                    >
+                      {producto.name}
+                    </h3>
+
+                    <p
+                      style={{
+                        margin: "0 0 5px",
+                        fontWeight: 700,
+                      }}
+                    >
+                      ${producto.price}
+                    </p>
+
+                    <p
+                      style={{
+                        margin: "0 0 10px",
+                        fontSize: "13px",
+                        color: "#666",
+                      }}
+                    >
+                      Stock: {producto.stock}
+                    </p>
+
+                    {producto.category &&
+                      producto.category.length > 0 && (
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "5px",
+                            flexWrap: "wrap",
+                            marginBottom: "12px",
+                          }}
+                        >
+                          {producto.category.map(
+                            (categoria) => (
+                              <span
+                                key={categoria}
+                                style={{
+                                  background: "#e5eadf",
+                                  color: "#263d2d",
+                                  padding: "4px 8px",
+                                  borderRadius: "20px",
+                                  fontSize: "11px",
+                                }}
+                              >
+                                {categoria}
+                              </span>
+                            )
+                          )}
+                        </div>
+                      )}
 
                     <div
                       style={{
-                        padding:
-                          "20px",
+                        display: "flex",
+                        gap: "8px",
                       }}
                     >
-                      {editando?.id ===
-                      producto.id ? (
-                        <>
-                          <h3>
-                            Editar producto
-                          </h3>
+                      <button
+                        onClick={() =>
+                          abrirEdicion(producto)
+                        }
+                        style={{
+                          ...buttonStyle,
+                          flex: 1,
+                          background: "#263d2d",
+                          color: "#fff",
+                        }}
+                      >
+                        Editar
+                      </button>
 
-                          <input
-                            value={
-                              editando.name
-                            }
-                            onChange={(
-                              e
-                            ) =>
-                              setEditando(
-                                {
-                                  ...editando,
-                                  name:
-                                    e.target
-                                      .value,
-                                }
-                              )
-                            }
-                            placeholder="Nombre"
-                            style={
-                              inputStyle
-                            }
-                          />
+                      <button
+                        onClick={() =>
+                          eliminarProducto(producto.id)
+                        }
+                        style={{
+                          ...buttonStyle,
+                          background: "#f1dede",
+                          color: "#9b3333",
+                        }}
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
-                          {/* CATEGORÍAS MÚLTIPLES */}
-                          <div
-                            style={{
-                              marginBottom:
-                                "12px",
-                            }}
-                          >
-                            <label
-                              style={{
-                                display:
-                                  "block",
-                                marginBottom:
-                                  "8px",
-                                fontWeight:
-                                  "bold",
-                              }}
-                            >
-                              Categorías
-                            </label>
+        {/* =========================
+            MODAL EDITAR PRODUCTO
+        ========================= */}
 
-                            <div
-                              style={{
-                                display:
-                                  "flex",
-                                flexWrap:
-                                  "wrap",
-                                gap: "8px",
-                              }}
-                            >
-                              {categoriasDisponibles.map(
-                                (
+        {editando && (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 9999,
+              background: "rgba(0,0,0,0.55)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "15px",
+              boxSizing: "border-box",
+              overflowY: "auto",
+            }}
+          >
+            <div
+              style={{
+                width: "100%",
+                maxWidth: "800px",
+                maxHeight: "95vh",
+                overflowY: "auto",
+                background: "#fff",
+                borderRadius: "14px",
+                padding: "20px",
+                boxSizing: "border-box",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: "20px",
+                }}
+              >
+                <h2
+                  style={{
+                    margin: 0,
+                    color: "#263d2d",
+                  }}
+                >
+                  Editar producto
+                </h2>
+
+                <button
+                  onClick={cancelarEdicion}
+                  style={{
+                    ...buttonStyle,
+                    background: "#eee",
+                    color: "#333",
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* DATOS BÁSICOS */}
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns:
+                    "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "15px",
+                }}
+              >
+                <div>
+                  <label style={labelStyle}>
+                    Nombre
+                  </label>
+
+                  <input
+                    value={editando.name}
+                    onChange={(e) =>
+                      setEditando({
+                        ...editando,
+                        name: e.target.value,
+                      })
+                    }
+                    style={inputStyle}
+                  />
+                </div>
+
+                <div>
+                  <label style={labelStyle}>
+                    Precio general
+                  </label>
+
+                  <input
+                    type="number"
+                    min="0"
+                    value={editando.price}
+                    onChange={(e) =>
+                      setEditando({
+                        ...editando,
+                        price: Number(
+                          e.target.value
+                        ),
+                      })
+                    }
+                    style={inputStyle}
+                  />
+                </div>
+
+                <div>
+                  <label style={labelStyle}>
+                    Stock
+                  </label>
+
+                  <input
+                    type="number"
+                    min="0"
+                    value={editando.stock}
+                    onChange={(e) =>
+                      setEditando({
+                        ...editando,
+                        stock: Number(
+                          e.target.value
+                        ),
+                      })
+                    }
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginTop: "15px" }}>
+                <label style={labelStyle}>
+                  Descripción
+                </label>
+
+                <textarea
+                  value={editando.description || ""}
+                  onChange={(e) =>
+                    setEditando({
+                      ...editando,
+                      description: e.target.value,
+                    })
+                  }
+                  rows={4}
+                  style={{
+                    ...inputStyle,
+                    resize: "vertical",
+                  }}
+                />
+              </div>
+
+              {/* CATEGORÍAS */}
+
+              <div style={{ marginTop: "20px" }}>
+                <label style={labelStyle}>
+                  Categorías
+                </label>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "15px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  {categoriasDisponibles.map(
+                    (categoria) => (
+                      <label
+                        key={categoria}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={(
+                            editando.category || []
+                          ).includes(categoria)}
+                          onChange={() =>
+                            setEditando({
+                              ...editando,
+                              category:
+                                alternarCategoria(
+                                  editando.category || [],
                                   categoria
-                                ) => {
-                                  const categoriasActuales =
-                                    editando.category ||
-                                    [];
+                                ),
+                            })
+                          }
+                        />
 
-                                  const seleccionada =
-                                    categoriasActuales.includes(
-                                      categoria
-                                    );
+                        {categoria}
+                      </label>
+                    )
+                  )}
+                </div>
+              </div>
 
-                                  return (
-                                    <label
-                                      key={
-                                        categoria
-                                      }
-                                      style={{
-                                        display:
-                                          "flex",
-                                        alignItems:
-                                          "center",
-                                        gap: "7px",
-                                        padding:
-                                          "9px 12px",
-                                        borderRadius:
-                                          "10px",
-                                        border:
-                                          seleccionada
-                                            ? "2px solid #263d2d"
-                                            : "1px solid #ddd",
-                                        background:
-                                          seleccionada
-                                            ? "#edf2ed"
-                                            : "#fff",
-                                        color:
-                                          "#263d2d",
-                                        cursor:
-                                          "pointer",
-                                        fontWeight:
-                                          seleccionada
-                                            ? "bold"
-                                            : "normal",
-                                      }}
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={
-                                          seleccionada
-                                        }
-                                        onChange={() =>
-                                          setEditando(
-                                            {
-                                              ...editando,
-                                              category:
-                                                alternarCategoria(
-                                                  categoriasActuales,
-                                                  categoria
-                                                ),
-                                            }
-                                          )
-                                        }
-                                      />
+              {/* IMÁGENES GENERALES */}
 
-                                      {
-                                        categoria
-                                      }
-                                    </label>
-                                  );
-                                }
-                              )}
-                            </div>
-                          </div>
+              <div style={{ marginTop: "20px" }}>
+                <label style={labelStyle}>
+                  Imágenes actuales
+                </label>
 
-                          <textarea
-                            value={
-                              editando.description ||
-                              ""
-                            }
-                            onChange={(
-                              e
-                            ) =>
-                              setEditando(
-                                {
-                                  ...editando,
-                                  description:
-                                    e.target
-                                      .value,
-                                }
-                              )
-                            }
-                            placeholder="Descripción"
-                            style={{
-                              ...inputStyle,
-                              minHeight:
-                                "80px",
-                              resize:
-                                "vertical",
-                            }}
-                          />
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "10px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  {(
+                    imagenesProducto[editando.id] || []
+                  ).map((imagen) => (
+                    <div
+                      key={imagen.id}
+                      style={{
+                        width: "100px",
+                        position: "relative",
+                      }}
+                    >
+                      <img
+                        src={imagen.image_url}
+                        alt=""
+                        style={{
+                          width: "100px",
+                          height: "100px",
+                          objectFit: "cover",
+                          borderRadius: "8px",
+                          border:
+                            editando.image ===
+                            imagen.image_url
+                              ? "3px solid #263d2d"
+                              : "1px solid #ddd",
+                        }}
+                      />
 
-                          <input
-                            type="number"
-                            min="0"
-                            value={
-                              editando.price
-                            }
-                            onChange={(
-                              e
-                            ) =>
-                              setEditando(
-                                {
-                                  ...editando,
-                                  price:
-                                    Number(
-                                      e.target
-                                        .value
-                                    ),
-                                }
-                              )
-                            }
-                            placeholder="Precio"
-                            style={
-                              inputStyle
-                            }
-                          />
+                      <button
+                        onClick={() =>
+                          eliminarImagen(imagen)
+                        }
+                        style={{
+                          position: "absolute",
+                          top: "4px",
+                          right: "4px",
+                          width: "24px",
+                          height: "24px",
+                          border: "none",
+                          borderRadius: "50%",
+                          background: "#fff",
+                          color: "#a00",
+                          cursor: "pointer",
+                          fontWeight: 700,
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
 
-                          <input
-                            type="number"
-                            min="0"
-                            value={
-                              editando.stock
-                            }
-                            onChange={(
-                              e
-                            ) =>
-                              setEditando(
-                                {
-                                  ...editando,
-                                  stock:
-                                    Number(
-                                      e.target
-                                        .value
-                                    ),
-                                }
-                              )
-                            }
-                            placeholder="Stock"
-                            style={
-                              inputStyle
-                            }
-                          />
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) =>
+                    setImagenesSeleccionadas(
+                      Array.from(
+                        e.target.files || []
+                      )
+                    )
+                  }
+                  style={{
+                    ...inputStyle,
+                    marginTop: "12px",
+                  }}
+                />
 
-                          {/* TALLES EDITANDO */}
-                          <label
-                            style={{
-                              display:
-                                "flex",
-                              alignItems:
-                                "center",
-                              gap: "10px",
-                              cursor:
-                                "pointer",
-                              fontWeight:
-                                "bold",
-                              marginBottom:
-                                "12px",
-                            }}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={
-                                editando.tiene_talle
-                              }
-                              onChange={(
-                                e
-                              ) =>
-                                setEditando(
-                                  {
-                                    ...editando,
-                                    tiene_talle:
-                                      e.target
-                                        .checked,
-                                    talles:
-                                      e
-                                        .target
-                                        .checked
-                                        ? editando.talles
-                                        : [],
-                                  }
-                                )
-                              }
-                              style={{
-                                width:
-                                  "18px",
-                                height:
-                                  "18px",
-                              }}
-                            />
+                {imagenesSeleccionadas.length >
+                  0 && (
+                  <p
+                    style={{
+                      fontSize: "12px",
+                      color: "#666",
+                    }}
+                  >
+                    {imagenesSeleccionadas.length}{" "}
+                    imagen(es) nueva(s)
+                    seleccionada(s).
+                  </p>
+                )}
+              </div>
 
-                            Este producto tiene talles
-                          </label>
+              {/* TIENE TALLE */}
 
-                          {editando.tiene_talle && (
-                            <>
-                              <div
-                                style={{
-                                  display:
-                                    "flex",
-                                  gap: "8px",
-                                  alignItems:
-                                    "center",
-                                  marginBottom:
-                                    "10px",
-                                }}
-                              >
-                                <input
-                                  type="text"
-                                  value={
-                                    nuevoTalleEditando
-                                  }
-                                  onChange={(
-                                    e
-                                  ) =>
-                                    setNuevoTalleEditando(
-                                      e.target
-                                        .value
-                                    )
-                                  }
-                                  onKeyDown={(
-                                    e
-                                  ) => {
-                                    if (
-                                      e.key ===
-                                      "Enter"
-                                    ) {
-                                      e.preventDefault();
-                                      agregarTalleEditando();
-                                    }
-                                  }}
-                                  placeholder="Ej: M"
-                                  style={{
-                                    ...inputStyle,
-                                    marginBottom:
-                                      0,
-                                  }}
-                                />
+              <div
+                style={{
+                  marginTop: "25px",
+                  paddingTop: "20px",
+                  borderTop:
+                    "1px solid #e5e5e5",
+                }}
+              >
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    fontWeight: 600,
+                    color: "#263d2d",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={editando.tiene_talle}
+                    onChange={(e) =>
+                      setEditando({
+                        ...editando,
+                        tiene_talle:
+                          e.target.checked,
+                      })
+                    }
+                  />
 
-                                <button
-                                  type="button"
-                                  onClick={
-                                    agregarTalleEditando
-                                  }
-                                  style={
-                                    primaryButton
-                                  }
-                                >
-                                  ＋ Agregar
-                                </button>
-                              </div>
+                  Este producto tiene talles/colores
+                </label>
+              </div>
 
-                              {editando
-                                .talles
-                                .length >
-                                0 && (
-                                <div
-                                  style={{
-                                    display:
-                                      "flex",
-                                    flexWrap:
-                                      "wrap",
-                                    gap: "8px",
-                                    marginBottom:
-                                      "15px",
-                                  }}
-                                >
-                                  {editando.talles.map(
-                                    (
-                                      talle
-                                    ) => (
-                                      <span
-                                        key={
-                                          talle
-                                        }
-                                        style={
-                                          talleTag
-                                        }
-                                      >
-                                        {
-                                          talle
-                                        }
+              {/* VARIANTES */}
 
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            eliminarTalleEditando(
-                                              talle
-                                            )
-                                          }
-                                          style={
-                                            talleDeleteButton
-                                          }
-                                        >
-                                          ×
-                                        </button>
-                                      </span>
-                                    )
-                                  )}
-                                </div>
-                              )}
-                            </>
-                          )}
+              {editando.tiene_talle && (
+                <div
+                  style={{
+                    marginTop: "20px",
+                    background: "#f8f8f4",
+                    padding: "15px",
+                    borderRadius: "10px",
+                  }}
+                >
+                  <h3
+                    style={{
+                      marginTop: 0,
+                      color: "#263d2d",
+                    }}
+                  >
+                    Talles y variantes
+                  </h3>
 
-                          {/* VARIANTES */}
-                          {editando.talles.map(
-                            (talle) => {
-                              const variantesDelTalle =
-                                variantes.filter(
-                                  (
-                                    variante
-                                  ) =>
-                                    variante.producto_id ===
-                                      editando.id &&
-                                    variante.talle ===
-                                      talle
-                                );
+                  {/* AGREGAR TALLE */}
 
-                              return (
-                                <div
-                                  key={`variantes-${talle}`}
-                                  style={{
-                                    marginTop:
-                                      "12px",
-                                    padding:
-                                      "12px",
-                                    background:
-                                      "#f8faf8",
-                                    borderRadius:
-                                      "12px",
-                                    border:
-                                      "1px solid #e1e7e1",
-                                  }}
-                                >
-                                  <strong>
-                                    Talle{" "}
-                                    {
-                                      talle
-                                    }
-                                  </strong>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "8px",
+                      flexWrap: "wrap",
+                      marginBottom: "20px",
+                    }}
+                  >
+                    <input
+                      value={nuevoTalleEditando}
+                      onChange={(e) =>
+                        setNuevoTalleEditando(
+                          e.target.value
+                        )
+                      }
+                      placeholder="Ej: S, M, L"
+                      style={{
+                        ...inputStyle,
+                        flex: 1,
+                        minWidth: "180px",
+                      }}
+                    />
 
-                                  <div
-                                    style={{
-                                      display:
-                                        "flex",
-                                      gap: "8px",
-                                      marginTop:
-                                        "10px",
-                                    }}
-                                  >
-                                    <input
-                                      type="text"
-                                      value={
-                                        talleParaColor ===
-                                        talle
-                                          ? nuevoColor
-                                          : ""
-                                      }
-                                      onChange={(
-                                        e
-                                      ) => {
-                                        setTalleParaColor(
-                                          talle
-                                        );
-                                        setNuevoColor(
-                                          e
-                                            .target
-                                            .value
-                                        );
-                                      }}
-                                      onFocus={() => {
-                                        setTalleParaColor(
-                                          talle
-                                        );
-                                      }}
-                                      placeholder="Ej: Negro"
-                                      style={{
-                                        ...inputStyle,
-                                        marginBottom:
-                                          0,
-                                        flex: 1,
-                                      }}
-                                    />
+                    <button
+                      onClick={
+                        agregarTalleEditando
+                      }
+                      style={{
+                        ...buttonStyle,
+                        background: "#263d2d",
+                        color: "#fff",
+                      }}
+                    >
+                      + Agregar talle
+                    </button>
+                  </div>
 
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const color =
-                                          nuevoColor.trim();
+                  {editando.talles.map(
+                    (talle) => {
+                      const variantesDelTalle =
+                        variantes.filter(
+                          (v) =>
+                            v.producto_id ===
+                              editando.id &&
+                            v.talle === talle
+                        );
 
-                                        if (
-                                          !color
-                                        ) {
-                                          alert(
-                                            "Ingresá un color."
-                                          );
-                                          return;
-                                        }
-
-                                        const yaExiste =
-                                          variantes.some(
-                                            (
-                                              v
-                                            ) =>
-                                              v.producto_id ===
-                                                editando.id &&
-                                              v.talle ===
-                                                talle &&
-                                              v.color.toLowerCase() ===
-                                                color.toLowerCase()
-                                          );
-
-                                        if (
-                                          yaExiste
-                                        ) {
-                                          alert(
-                                            "Ese color ya existe para ese talle."
-                                          );
-                                          return;
-                                        }
-
-                                        setVariantes(
-                                          [
-                                            ...variantes,
-                                            {
-                                              producto_id:
-                                                editando.id,
-                                              talle,
-                                              color,
-                                            },
-                                          ]
-                                        );
-
-                                        setNuevoColor(
-                                          ""
-                                        );
-                                        setTalleParaColor(
-                                          ""
-                                        );
-                                      }}
-                                      style={{
-                                        ...secondaryButton,
-                                        marginLeft:
-                                          0,
-                                        whiteSpace:
-                                          "nowrap",
-                                      }}
-                                    >
-                                      ＋ Color
-                                    </button>
-                                  </div>
-
-                                  {variantesDelTalle.length ===
-                                  0 ? (
-                                    <p
-                                      style={{
-                                        fontSize:
-                                          "13px",
-                                        color:
-                                          "#777",
-                                        marginBottom:
-                                          0,
-                                      }}
-                                    >
-                                      No hay colores agregados.
-                                    </p>
-                                  ) : (
-                                    <div
-                                      style={{
-                                        marginTop:
-                                          "10px",
-                                        display:
-                                          "flex",
-                                        flexDirection:
-                                          "column",
-                                        gap: "10px",
-                                      }}
-                                    >
-                                      {variantesDelTalle.map(
-                                        (
-                                          variante
-                                        ) => {
-                                          const fotos =
-                                            variante.id
-                                              ? imagenesVariantes[
-                                                  variante.id
-                                                ] ||
-                                                []
-                                              : [];
-
-                                          return (
-                                            <div
-                                              key={
-                                                variante.id
-                                              }
-                                              style={{
-                                                background:
-                                                  "white",
-                                                padding:
-                                                  "10px",
-                                                borderRadius:
-                                                  "10px",
-                                                border:
-                                                  "1px solid #ddd",
-                                              }}
-                                            >
-                                              <strong>
-                                                🎨{" "}
-                                                {
-                                                  variante.color
-                                                }
-                                              </strong>
-
-                                              {fotos.length >
-                                                0 && (
-                                                <div
-                                                  style={{
-                                                    display:
-                                                      "flex",
-                                                    gap: "7px",
-                                                    overflowX:
-                                                      "auto",
-                                                    marginTop:
-                                                      "8px",
-                                                  }}
-                                                >
-                                                  {fotos.map(
-                                                    (
-                                                      foto
-                                                    ) => (
-                                                      <img
-                                                        key={
-                                                          foto.id ||
-                                                          foto.image_url
-                                                        }
-                                                        src={
-                                                          foto.image_url
-                                                        }
-                                                        alt=""
-                                                        style={{
-                                                          width:
-                                                            "60px",
-                                                          height:
-                                                            "60px",
-                                                          objectFit:
-                                                            "cover",
-                                                          borderRadius:
-                                                            "8px",
-                                                          flexShrink:
-                                                            0,
-                                                        }}
-                                                      />
-                                                    )
-                                                  )}
-                                                </div>
-                                              )}
-                                            </div>
-                                          );
-                                        }
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            }
-                          )}
-
-                          {/* IMÁGENES ACTUALES */}
-                          {imagenes.length >
-                            0 && (
-                            <div
-                              style={{
-                                marginBottom:
-                                  "15px",
-                              }}
-                            >
-                              <p
-                                style={{
-                                  fontWeight:
-                                    "bold",
-                                  marginBottom:
-                                    "8px",
-                                }}
-                              >
-                                Imágenes actuales
-                              </p>
-
-                              <div
-                                style={{
-                                  display:
-                                    "flex",
-                                  gap: "10px",
-                                  overflowX:
-                                    "auto",
-                                  paddingBottom:
-                                    "5px",
-                                }}
-                              >
-                                {imagenes.map(
-                                  (
-                                    imagen
-                                  ) => (
-                                    <div
-                                      key={
-                                        imagen.id ||
-                                        imagen.image_url
-                                      }
-                                      style={{
-                                        position:
-                                          "relative",
-                                        flexShrink:
-                                          0,
-                                      }}
-                                    >
-                                      <img
-                                        src={
-                                          imagen.image_url
-                                        }
-                                        alt=""
-                                        style={{
-                                          width:
-                                            "80px",
-                                          height:
-                                            "80px",
-                                          objectFit:
-                                            "cover",
-                                          borderRadius:
-                                            "10px",
-                                          display:
-                                            "block",
-                                          border:
-                                            imagen.image_url ===
-                                            editando.image
-                                              ? "3px solid #263d2d"
-                                              : "1px solid #ddd",
-                                        }}
-                                      />
-
-                                      {imagen.image_url ===
-                                        editando.image && (
-                                        <span
-                                          style={{
-                                            position:
-                                              "absolute",
-                                            bottom:
-                                              "3px",
-                                            left:
-                                              "3px",
-                                            right:
-                                              "3px",
-                                            background:
-                                              "rgba(38,61,45,0.9)",
-                                            color:
-                                              "white",
-                                            fontSize:
-                                              "10px",
-                                            textAlign:
-                                              "center",
-                                            borderRadius:
-                                              "5px",
-                                            padding:
-                                              "2px",
-                                          }}
-                                        >
-                                          Principal
-                                        </span>
-                                      )}
-
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          eliminarImagen(
-                                            imagen
-                                          )
-                                        }
-                                        style={{
-                                          position:
-                                            "absolute",
-                                          top:
-                                            "-6px",
-                                          right:
-                                            "-6px",
-                                          width:
-                                            "24px",
-                                          height:
-                                            "24px",
-                                          borderRadius:
-                                            "50%",
-                                          border:
-                                            "none",
-                                          background:
-                                            "#9b2929",
-                                          color:
-                                            "white",
-                                          cursor:
-                                            "pointer",
-                                          fontWeight:
-                                            "bold",
-                                        }}
-                                      >
-                                        ×
-                                      </button>
-                                    </div>
-                                  )
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* AGREGAR IMÁGENES */}
-                          <label>
-                            Agregar imágenes
-                          </label>
-
-                          <input
-                            type="file"
-                            accept="image/*"
-                            multiple
-                            onChange={(e) => {
-                              const files =
-                                Array.from(
-                                  e
-                                    .target
-                                    .files ||
-                                    []
-                                );
-
-                              setImagenesSeleccionadas(
-                                files
-                              );
-                            }}
-                            style={
-                              inputStyle
-                            }
-                          />
-
-                          {imagenesSeleccionadas.length >
-                            0 && (
-                            <p
-                              style={{
-                                color:
-                                  "#666",
-                              }}
-                            >
-                              {
-                                imagenesSeleccionadas.length
-                              }{" "}
-                              imagen(es) nueva(s)
-                              seleccionada(s)
-                            </p>
-                          )}
-
-                          {subiendoImagen && (
-                            <p
-                              style={{
-                                color:
-                                  "#777",
-                              }}
-                            >
-                              Subiendo imágenes...
-                            </p>
-                          )}
-
-                          <input
-                            value={
-                              editando.image ||
-                              ""
-                            }
-                            onChange={(e) =>
-                              setEditando(
-                                {
-                                  ...editando,
-                                  image:
-                                    e.target
-                                      .value,
-                                }
-                              )
-                            }
-                            placeholder="URL de imagen principal"
-                            style={
-                              inputStyle
-                            }
-                          />
-
-                          <button
-                            onClick={
-                              guardarCambios
-                            }
-                            disabled={
-                              guardando ||
-                              subiendoImagen
-                            }
-                            style={
-                              primaryButton
-                            }
-                          >
-                            {guardando
-                              ? "Guardando..."
-                              : "💾 Guardar cambios"}
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              setEditando(
-                                null
-                              );
-                              setImagenesSeleccionadas(
-                                []
-                              );
-                              setNuevoTalleEditando(
-                                ""
-                              );
-                            }}
-                            style={
-                              secondaryButton
-                            }
-                          >
-                            Cancelar
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <h3
-                            style={{
-                              margin:
-                                "0 0 8px",
-                              fontSize:
-                                "19px",
-                            }}
-                          >
-                            {
-                              producto.name
-                            }
-                          </h3>
-
-                          {/* CATEGORÍAS */}
-                          {producto.category &&
-                            producto.category
-                              .length >
-                              0 && (
-                              <div
-                                style={{
-                                  display:
-                                    "flex",
-                                  flexWrap:
-                                    "wrap",
-                                  gap: "6px",
-                                  marginBottom:
-                                    "10px",
-                                }}
-                              >
-                                {producto.category.map(
-                                  (
-                                    categoria
-                                  ) => (
-                                    <span
-                                      key={
-                                        categoria
-                                      }
-                                      style={{
-                                        display:
-                                          "inline-block",
-                                        background:
-                                          "#edf2ed",
-                                        color:
-                                          "#263d2d",
-                                        padding:
-                                          "5px 9px",
-                                        borderRadius:
-                                          "20px",
-                                        fontSize:
-                                          "12px",
-                                      }}
-                                    >
-                                      {
-                                        categoria
-                                      }
-                                    </span>
-                                  )
-                                )}
-                              </div>
-                            )}
-
-                          <p
-                            style={{
-                              color:
-                                "#666",
-                              minHeight:
-                                "40px",
-                            }}
-                          >
-                            {producto.description ||
-                              "Sin descripción"}
-                          </p>
-
-                          {producto.tiene_talle &&
-                            producto.talles
-                              .length >
-                              0 && (
-                              <p
-                                style={{
-                                  fontSize:
-                                    "14px",
-                                  color:
-                                    "#555",
-                                }}
-                              >
-                                <strong>
-                                  Talles:
-                                </strong>{" "}
-                                {producto.talles.join(
-                                  ", "
-                                )}
-                              </p>
-                            )}
-
+                      return (
+                        <div
+                          key={talle}
+                          style={{
+                            background: "#fff",
+                            border:
+                              "1px solid #ddd",
+                            borderRadius: "10px",
+                            padding: "15px",
+                            marginBottom: "15px",
+                          }}
+                        >
                           <div
                             style={{
-                              display:
-                                "flex",
+                              display: "flex",
                               justifyContent:
                                 "space-between",
-                              alignItems:
-                                "center",
-                              marginBottom:
-                                "18px",
+                              alignItems: "center",
+                              marginBottom: "12px",
                             }}
                           >
                             <strong
                               style={{
-                                fontSize:
-                                  "20px",
+                                color: "#263d2d",
                               }}
                             >
-                              $
-                              {formatoPrecio(
-                                Number(
-                                  producto.price
-                                )
-                              )}
+                              Talle: {talle}
                             </strong>
-
-                            <span
-                              style={{
-                                fontSize:
-                                  "14px",
-                                fontWeight:
-                                  "bold",
-                              }}
-                            >
-                              Stock:{" "}
-                              {producto.stock ||
-                                0}
-                            </span>
-                          </div>
-
-                          {/* MINIATURAS */}
-                          {imagenes.length >
-                            1 && (
-                            <div
-                              style={{
-                                display:
-                                  "flex",
-                                gap:
-                                  "7px",
-                                overflowX:
-                                  "auto",
-                                marginBottom:
-                                  "15px",
-                              }}
-                            >
-                              {imagenes.map(
-                                (
-                                  imagen
-                                ) => (
-                                  <img
-                                    key={
-                                      imagen.id ||
-                                      imagen.image_url
-                                    }
-                                    src={
-                                      imagen.image_url
-                                    }
-                                    alt=""
-                                    style={{
-                                      width:
-                                        "55px",
-                                      height:
-                                        "55px",
-                                      objectFit:
-                                        "cover",
-                                      borderRadius:
-                                        "7px",
-                                      flexShrink:
-                                        0,
-                                    }}
-                                  />
-                                )
-                              )}
-                            </div>
-                          )}
-
-                          <div
-                            style={{
-                              display:
-                                "flex",
-                              gap:
-                                "8px",
-                            }}
-                          >
-                            <button
-                              onClick={() => {
-                                setEditando(
-                                  {
-                                    ...producto,
-                                    category:
-                                      producto.category ||
-                                      [],
-                                    talles:
-                                      producto.talles ||
-                                      [],
-                                  }
-                                );
-
-                                setMostrarNuevo(
-                                  false
-                                );
-
-                                setImagenesSeleccionadas(
-                                  []
-                                );
-
-                                setNuevoTalleEditando(
-                                  ""
-                                );
-                              }}
-                              style={{
-                                ...secondaryButton,
-                                flex: 1,
-                                marginLeft:
-                                  0,
-                              }}
-                            >
-                              ✏️ Editar
-                            </button>
 
                             <button
                               onClick={() =>
-                                eliminarProducto(
-                                  producto.id
+                                eliminarTalleEditando(
+                                  talle
                                 )
                               }
                               style={{
-                                ...deleteButton,
-                                flex: 1,
+                                ...buttonStyle,
+                                background:
+                                  "#f1dede",
+                                color: "#9b3333",
+                                padding:
+                                  "7px 10px",
                               }}
                             >
-                              🗑️ Eliminar
+                              Eliminar talle
                             </button>
                           </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                );
-              }
-            )}
+
+                          {/* AGREGAR COLOR */}
+
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: "8px",
+                              flexWrap: "wrap",
+                              marginBottom: "12px",
+                            }}
+                          >
+                            <input
+                              value={
+                                talleParaColor ===
+                                talle
+                                  ? nuevoColor
+                                  : ""
+                              }
+                              onFocus={() =>
+                                setTalleParaColor(
+                                  talle
+                                )
+                              }
+                              onChange={(e) => {
+                                setTalleParaColor(
+                                  talle
+                                );
+                                setNuevoColor(
+                                  e.target.value
+                                );
+                              }}
+                              placeholder="Ej: Negro, Rojo..."
+                              style={{
+                                ...inputStyle,
+                                flex: 1,
+                                minWidth:
+                                  "180px",
+                              }}
+                            />
+
+                            <button
+                              onClick={() =>
+                                agregarColorEditando(
+                                  talle
+                                )
+                              }
+                              style={{
+                                ...buttonStyle,
+                                background:
+                                  "#e5eadf",
+                                color: "#263d2d",
+                              }}
+                            >
+                              + Agregar color
+                            </button>
+                          </div>
+
+                          {/* COLORES */}
+
+                          {variantesDelTalle.map(
+                            (variante) => {
+                              const fotos =
+                                variante.id
+                                  ? imagenesVariantes[
+                                      variante.id
+                                    ] || []
+                                  : [];
+
+                              const clave =
+                                claveVariante(
+                                  variante
+                                );
+
+                              const fotosNuevas =
+                                fotosNuevasVariantes[
+                                  clave
+                                ] || [];
+
+                              return (
+                                <div
+                                  key={
+                                    variante.id ||
+                                    clave
+                                  }
+                                  style={{
+                                    border:
+                                      "1px solid #ddd",
+                                    borderRadius:
+                                      "8px",
+                                    padding: "12px",
+                                    marginTop:
+                                      "10px",
+                                    background:
+                                      "#fafafa",
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      justifyContent:
+                                        "space-between",
+                                      alignItems:
+                                        "center",
+                                      gap: "10px",
+                                    }}
+                                  >
+                                    <strong
+                                      style={{
+                                        color:
+                                          "#263d2d",
+                                      }}
+                                    >
+                                      🎨{" "}
+                                      {
+                                        variante.color
+                                      }
+                                    </strong>
+
+                                    <button
+                                      onClick={() =>
+                                        eliminarVariante(
+                                          variante
+                                        )
+                                      }
+                                      style={{
+                                        ...buttonStyle,
+                                        background:
+                                          "#f1dede",
+                                        color:
+                                          "#9b3333",
+                                        padding:
+                                          "6px 9px",
+                                      }}
+                                    >
+                                      Eliminar
+                                    </button>
+                                  </div>
+
+                                  {/* PRECIO */}
+
+                                  <div
+                                    style={{
+                                      marginTop:
+                                        "10px",
+                                    }}
+                                  >
+                                    <label
+                                      style={{
+                                        ...labelStyle,
+                                        fontSize:
+                                          "13px",
+                                      }}
+                                    >
+                                      Precio de esta
+                                      combinación
+                                    </label>
+
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={
+                                        variante.precio
+                                      }
+                                      onChange={(e) => {
+                                        const precio =
+                                          Number(
+                                            e.target.value
+                                          );
+
+                                        setVariantes(
+                                          (actuales) =>
+                                            actuales.map(
+                                              (v) =>
+                                                (
+                                                  v.id &&
+                                                  variante.id &&
+                                                  v.id ===
+                                                    variante.id
+                                                ) ||
+                                                v ===
+                                                  variante
+                                                  ? {
+                                                      ...v,
+                                                      precio,
+                                                    }
+                                                  : v
+                                            )
+                                        );
+                                      }}
+                                      style={{
+                                        ...inputStyle,
+                                        maxWidth:
+                                          "220px",
+                                      }}
+                                    />
+                                  </div>
+
+                                  {/* FOTOS ACTUALES */}
+
+                                  {fotos.length >
+                                    0 && (
+                                    <div
+                                      style={{
+                                        marginTop:
+                                          "12px",
+                                      }}
+                                    >
+                                      <label
+                                        style={{
+                                          ...labelStyle,
+                                          fontSize:
+                                            "13px",
+                                        }}
+                                      >
+                                        Imágenes actuales
+                                      </label>
+
+                                      <div
+                                        style={{
+                                          display:
+                                            "flex",
+                                          gap: "8px",
+                                          flexWrap:
+                                            "wrap",
+                                        }}
+                                      >
+                                        {fotos.map(
+                                          (foto) => (
+                                            <img
+                                              key={
+                                                foto.id
+                                              }
+                                              src={
+                                                foto.image_url
+                                              }
+                                              alt=""
+                                              style={{
+                                                width:
+                                                  "75px",
+                                                height:
+                                                  "75px",
+                                                objectFit:
+                                                  "cover",
+                                                borderRadius:
+                                                  "7px",
+                                              }}
+                                            />
+                                          )
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* NUEVAS FOTOS */}
+
+                                  <div
+                                    style={{
+                                      marginTop:
+                                        "12px",
+                                    }}
+                                  >
+                                    <label
+                                      style={{
+                                        ...labelStyle,
+                                        fontSize:
+                                          "13px",
+                                      }}
+                                    >
+                                      Agregar fotos para
+                                      esta combinación
+                                    </label>
+
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      multiple
+                                      onChange={(e) =>
+                                        seleccionarFotosVariante(
+                                          variante,
+                                          Array.from(
+                                            e.target
+                                              .files ||
+                                              []
+                                          )
+                                        )
+                                      }
+                                      style={
+                                        inputStyle
+                                      }
+                                    />
+
+                                    {fotosNuevas.length >
+                                      0 && (
+                                      <p
+                                        style={{
+                                          fontSize:
+                                            "12px",
+                                          color:
+                                            "#666",
+                                          margin:
+                                            "5px 0 0",
+                                        }}
+                                      >
+                                        {
+                                          fotosNuevas.length
+                                        }{" "}
+                                        imagen(es)
+                                        nueva(s)
+                                        seleccionada(s).
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }
+                          )}
+
+                          {variantesDelTalle.length ===
+                            0 && (
+                            <p
+                              style={{
+                                color: "#777",
+                                fontSize: "13px",
+                              }}
+                            >
+                              No hay colores para
+                              este talle todavía.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    }
+                  )}
+                </div>
+              )}
+
+              {/* BOTONES */}
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: "10px",
+                  marginTop: "25px",
+                  paddingTop: "20px",
+                  borderTop:
+                    "1px solid #e5e5e5",
+                }}
+              >
+                <button
+                  onClick={cancelarEdicion}
+                  disabled={guardando}
+                  style={{
+                    ...buttonStyle,
+                    background: "#eee",
+                    color: "#333",
+                  }}
+                >
+                  Cancelar
+                </button>
+
+                <button
+                  onClick={guardarCambios}
+                  disabled={
+                    guardando ||
+                    subiendoImagen
+                  }
+                  style={{
+                    ...buttonStyle,
+                    background: "#263d2d",
+                    color: "#fff",
+                    padding: "12px 22px",
+                  }}
+                >
+                  {guardando
+                    ? "Guardando..."
+                    : "Guardar cambios"}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
     </div>
   );
 }
-
-// =========================
-// ESTILOS
-// =========================
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  boxSizing: "border-box",
-  padding: "11px 12px",
-  marginTop: "6px",
-  marginBottom: "12px",
-  border: "1px solid #ddd",
-  borderRadius: "9px",
-  fontSize: "14px",
-  outline: "none",
-};
-
-const primaryButton: React.CSSProperties = {
-  background: "#263d2d",
-  color: "#fff",
-  border: "none",
-  padding: "11px 16px",
-  borderRadius: "9px",
-  cursor: "pointer",
-  fontWeight: "bold",
-};
-
-const secondaryButton: React.CSSProperties = {
-  background: "#eee",
-  color: "#333",
-  border: "none",
-  padding: "11px 16px",
-  borderRadius: "9px",
-  cursor: "pointer",
-  fontWeight: "bold",
-  marginLeft: "8px",
-};
-
-const deleteButton: React.CSSProperties = {
-  background: "#f3dddd",
-  color: "#9b2929",
-  border: "none",
-  padding: "11px 16px",
-  borderRadius: "9px",
-  cursor: "pointer",
-  fontWeight: "bold",
-};
-
-const talleTag: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "5px",
-  background: "#edf2ed",
-  color: "#263d2d",
-  padding: "7px 9px",
-  borderRadius: "20px",
-  fontSize: "13px",
-  fontWeight: "bold",
-};
-
-const talleDeleteButton: React.CSSProperties = {
-  border: "none",
-  background: "transparent",
-  color: "#9b2929",
-  cursor: "pointer",
-  fontWeight: "bold",
-  fontSize: "17px",
-  lineHeight: 1,
-  padding: 0,
-};
-
-const statCard: React.CSSProperties = {
-  background: "white",
-  padding: "20px",
-  borderRadius: "15px",
-  boxShadow:
-    "0 3px 15px rgba(0,0,0,0.05)",
-};
-
-const mensajeCard: React.CSSProperties = {
-  background: "white",
-  padding: "40px",
-  textAlign: "center",
-  borderRadius: "15px",
-};
 
 export default Admin;
