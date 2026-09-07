@@ -36,6 +36,33 @@ type ImagenVariante = {
   orden: number;
 };
 
+type Pedido = {
+  id: number;
+  nombre: string;
+  apellido: string;
+  direccion: string;
+  codigo_postal: string;
+  telefono: string;
+  email: string;
+  total: number;
+  estado: "pendiente" | "confirmado" | "cancelado";
+  fecha: string;
+};
+
+type PedidoItem = {
+  id: number;
+  pedido_id: number;
+  producto_id: number;
+  nombre_producto: string;
+  talle: string | null;
+  color: string | null;
+  variante_id: number | null;
+  cantidad: number;
+  precio_unitario: number;
+  subtotal: number;
+  imagen: string | null;
+};
+
 const productoVacio = {
   name: "",
   description: "",
@@ -97,15 +124,6 @@ function Admin() {
     Record<number, ImagenVariante[]>
   >({});
 
-  /*
-   * FOTOS NUEVAS DE LAS VARIANTES
-   *
-   * La clave es:
-   * producto_id__talle__color
-   *
-   * Esto sirve tanto para variantes existentes
-   * como para variantes nuevas.
-   */
   const [fotosNuevasVariantes, setFotosNuevasVariantes] =
     useState<Record<string, File[]>>({});
 
@@ -120,8 +138,33 @@ function Admin() {
     Record<string, File[]>
   >({});
 
+  const [preciosPorColor, setPreciosPorColor] = useState<
+    Record<string, number>
+  >({});
+
+  const [nuevoTalle, setNuevoTalle] = useState("");
+  const [nuevoTalleEditando, setNuevoTalleEditando] = useState("");
+
+  // ============================================================
+  // PEDIDOS
+  // ============================================================
+
+  const [pedidos, setPedidos] = useState<Pedido[]>([]);
+  const [pedidoItems, setPedidoItems] = useState<
+    Record<number, PedidoItem[]>
+  >({});
+  const [pedidoAbierto, setPedidoAbierto] = useState<number | null>(null);
+  const [cargandoPedidos, setCargandoPedidos] = useState(false);
+  const [procesandoPedido, setProcesandoPedido] = useState<number | null>(
+    null
+  );
+
   function claveVariante(variante: Variante) {
     return `${variante.producto_id}__${variante.talle}__${variante.color}`;
+  }
+
+  function clavePrecioNuevo(talle: string, color: string) {
+    return `${talle}__${color}`;
   }
 
   function seleccionarFotosColor(
@@ -149,9 +192,6 @@ function Admin() {
     }));
   }
 
-  const [nuevoTalle, setNuevoTalle] = useState("");
-  const [nuevoTalleEditando, setNuevoTalleEditando] = useState("");
-
   // =========================
   // SESIÓN
   // =========================
@@ -178,12 +218,13 @@ function Admin() {
   }, []);
 
   // =========================
-  // CARGAR PRODUCTOS
+  // CARGAR PRODUCTOS Y PEDIDOS
   // =========================
 
   useEffect(() => {
     if (sesion) {
       cargarProductos();
+      cargarPedidos();
     }
   }, [sesion]);
 
@@ -213,6 +254,175 @@ function Admin() {
   }
 
   // =========================
+  // CARGAR PEDIDOS
+  // =========================
+
+  async function cargarPedidos() {
+    setCargandoPedidos(true);
+
+    const { data: pedidosData, error: pedidosError } = await supabase
+      .from("Pedidos")
+      .select("*")
+      .order("fecha", { ascending: false });
+
+    if (pedidosError) {
+      console.error(
+        "ERROR AL CARGAR PEDIDOS:",
+        pedidosError
+      );
+
+      setPedidos([]);
+      setPedidoItems({});
+      setCargandoPedidos(false);
+      return;
+    }
+
+    const listaPedidos = (pedidosData || []) as Pedido[];
+
+    setPedidos(listaPedidos);
+
+    const { data: itemsData, error: itemsError } = await supabase
+      .from("PedidoItems")
+      .select("*")
+      .order("id", { ascending: true });
+
+    if (itemsError) {
+      console.error(
+        "ERROR AL CARGAR ITEMS DE PEDIDOS:",
+        itemsError
+      );
+
+      setPedidoItems({});
+      setCargandoPedidos(false);
+      return;
+    }
+
+    const mapa: Record<number, PedidoItem[]> = {};
+
+    (itemsData || []).forEach((item) => {
+      const tipado = item as PedidoItem;
+
+      if (!mapa[tipado.pedido_id]) {
+        mapa[tipado.pedido_id] = [];
+      }
+
+      mapa[tipado.pedido_id].push(tipado);
+    });
+
+    setPedidoItems(mapa);
+    setCargandoPedidos(false);
+  }
+
+  // =========================
+  // CONFIRMAR PEDIDO
+  // =========================
+
+  async function confirmarPedido(pedidoId: number) {
+    const confirmar = window.confirm(
+      "¿Confirmar este pedido?\n\nSe descontará el stock reservado."
+    );
+
+    if (!confirmar) return;
+
+    setProcesandoPedido(pedidoId);
+
+    try {
+      const { error } = await supabase.rpc("confirmar_pedido", {
+        p_pedido_id: pedidoId,
+      });
+
+      if (error) {
+        console.error(
+          "ERROR AL CONFIRMAR PEDIDO:",
+          error
+        );
+
+        alert(
+          `No se pudo confirmar el pedido:\n\n${error.message}`
+        );
+
+        return;
+      }
+
+      alert("Pedido confirmado correctamente.");
+
+      await Promise.all([
+        cargarPedidos(),
+        cargarProductos(),
+      ]);
+    } finally {
+      setProcesandoPedido(null);
+    }
+  }
+
+  // =========================
+  // CANCELAR PEDIDO
+  // =========================
+
+ async function cancelarPedido(pedidoId: number) {
+  const confirmar = window.confirm(
+    "¿Eliminar este pedido?\n\nSi está pendiente, el stock reservado será devuelto automáticamente."
+  );
+
+  if (!confirmar) return;
+
+  setProcesandoPedido(pedidoId);
+
+  try {
+    const { error } = await supabase.rpc(
+      "eliminar_pedido",
+      {
+        p_pedido_id: pedidoId,
+      }
+    );
+
+    if (error) {
+      console.error(
+        "ERROR AL ELIMINAR PEDIDO:",
+        error
+      );
+
+      alert(
+        `No se pudo eliminar el pedido:\n\n${error.message}`
+      );
+
+      return;
+    }
+
+    // Lo sacamos inmediatamente de la pantalla
+    setPedidos((actuales) =>
+      actuales.filter(
+        (pedido) =>
+          pedido.id !== pedidoId
+      )
+    );
+
+    setPedidoItems((actuales) => {
+      const copia = {
+        ...actuales,
+      };
+
+      delete copia[pedidoId];
+
+      return copia;
+    });
+
+    if (pedidoAbierto === pedidoId) {
+      setPedidoAbierto(null);
+    }
+
+    // Actualiza el stock en el Admin
+    await cargarProductos();
+
+    alert(
+      "Pedido eliminado y stock restaurado correctamente."
+    );
+  } finally {
+    setProcesandoPedido(null);
+  }
+}
+
+  // =========================
   // CARGAR IMÁGENES
   // =========================
 
@@ -228,7 +438,10 @@ function Admin() {
       .order("orden", { ascending: true });
 
     if (error) {
-      console.error("ERROR AL CARGAR IMÁGENES:", error);
+      console.error(
+        "ERROR AL CARGAR IMÁGENES:",
+        error
+      );
       return;
     }
 
@@ -245,7 +458,9 @@ function Admin() {
         mapa[imagenTipada.producto_id] = [];
       }
 
-      mapa[imagenTipada.producto_id].push(imagenTipada);
+      mapa[imagenTipada.producto_id].push(
+        imagenTipada
+      );
     });
 
     setImagenesProducto(mapa);
@@ -262,11 +477,15 @@ function Admin() {
       .order("id", { ascending: true });
 
     if (error) {
-      console.error("ERROR AL CARGAR VARIANTES:", error);
+      console.error(
+        "ERROR AL CARGAR VARIANTES:",
+        error
+      );
       return;
     }
 
-    const variantesCargadas = (data || []) as Variante[];
+    const variantesCargadas =
+      (data || []) as Variante[];
 
     setVariantes(variantesCargadas);
 
@@ -300,13 +519,16 @@ function Admin() {
     });
 
     (imagenes || []).forEach((imagen) => {
-      const imagenTipada = imagen as ImagenVariante;
+      const imagenTipada =
+        imagen as ImagenVariante;
 
       if (!mapa[imagenTipada.variante_id]) {
         mapa[imagenTipada.variante_id] = [];
       }
 
-      mapa[imagenTipada.variante_id].push(imagenTipada);
+      mapa[imagenTipada.variante_id].push(
+        imagenTipada
+      );
     });
 
     setImagenesVariantes(mapa);
@@ -379,11 +601,46 @@ function Admin() {
       )
       .subscribe();
 
+    const canalPedidos = supabase
+      .channel("pedidos-cambios")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "Pedidos",
+        },
+        () => {
+          cargarPedidos();
+          cargarProductos();
+        }
+      )
+      .subscribe();
+
+    const canalPedidoItems = supabase
+      .channel("pedido-items-cambios")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "PedidoItems",
+        },
+        () => {
+          cargarPedidos();
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(canalProductos);
       supabase.removeChannel(canalImagenes);
       supabase.removeChannel(canalVariantes);
-      supabase.removeChannel(canalImagenesVariantes);
+      supabase.removeChannel(
+        canalImagenesVariantes
+      );
+      supabase.removeChannel(canalPedidos);
+      supabase.removeChannel(canalPedidoItems);
     };
   }, [sesion]);
 
@@ -413,7 +670,10 @@ function Admin() {
         error
       );
 
-      alert("Email o contraseña incorrectos.");
+      alert(
+        "Email o contraseña incorrectos."
+      );
+
       setIniciandoSesion(false);
       return;
     }
@@ -444,7 +704,10 @@ function Admin() {
 
     setNuevoProducto({
       ...nuevoProducto,
-      talles: [...nuevoProducto.talles, talle],
+      talles: [
+        ...nuevoProducto.talles,
+        talle,
+      ],
     });
 
     setNuevoTalle("");
@@ -464,16 +727,34 @@ function Admin() {
     if (
       coloresActuales.some(
         (c) =>
-          c.toLowerCase() === color.toLowerCase()
+          c.toLowerCase() ===
+          color.toLowerCase()
       )
     ) {
-      alert("Ese color ya está agregado a ese talle.");
+      alert(
+        "Ese color ya está agregado a ese talle."
+      );
       return;
     }
 
     setColoresPorTalle((actuales) => ({
       ...actuales,
-      [talle]: [...coloresActuales, color],
+      [talle]: [
+        ...coloresActuales,
+        color,
+      ],
+    }));
+
+    const clave = clavePrecioNuevo(
+      talle,
+      color
+    );
+
+    setPreciosPorColor((actuales) => ({
+      ...actuales,
+      [clave]: Number(
+        nuevoProducto.price || 0
+      ),
     }));
 
     setNuevoColor("");
@@ -483,9 +764,10 @@ function Admin() {
   function eliminarTalleNuevo(talle: string) {
     setNuevoProducto({
       ...nuevoProducto,
-      talles: nuevoProducto.talles.filter(
-        (t) => t !== talle
-      ),
+      talles:
+        nuevoProducto.talles.filter(
+          (t) => t !== talle
+        ),
     });
 
     setColoresPorTalle((actuales) => {
@@ -493,36 +775,81 @@ function Admin() {
       delete copia[talle];
       return copia;
     });
+
+    setPreciosPorColor((actuales) => {
+      const copia = { ...actuales };
+
+      Object.keys(copia).forEach(
+        (clave) => {
+          if (
+            clave.startsWith(
+              `${talle}__`
+            )
+          ) {
+            delete copia[clave];
+          }
+        }
+      );
+
+      return copia;
+    });
+
+    setFotosPorColor((actuales) => {
+      const copia = { ...actuales };
+
+      Object.keys(copia).forEach(
+        (clave) => {
+          if (
+            clave.startsWith(
+              `${talle}__`
+            )
+          ) {
+            delete copia[clave];
+          }
+        }
+      );
+
+      return copia;
+    });
   }
 
   function agregarTalleEditando() {
     if (!editando) return;
 
-    const talle = nuevoTalleEditando.trim();
+    const talle =
+      nuevoTalleEditando.trim();
 
     if (!talle) return;
 
     if (editando.talles.includes(talle)) {
-      alert("Ese talle ya está agregado.");
+      alert(
+        "Ese talle ya está agregado."
+      );
       return;
     }
 
     setEditando({
       ...editando,
-      talles: [...editando.talles, talle],
+      talles: [
+        ...editando.talles,
+        talle,
+      ],
     });
 
     setNuevoTalleEditando("");
   }
 
-  function eliminarTalleEditando(talle: string) {
+  function eliminarTalleEditando(
+    talle: string
+  ) {
     if (!editando) return;
 
     setEditando({
       ...editando,
-      talles: editando.talles.filter(
-        (t) => t !== talle
-      ),
+      talles:
+        editando.talles.filter(
+          (t) => t !== talle
+        ),
     });
   }
 
@@ -544,11 +871,21 @@ function Admin() {
     setSubiendoImagen(true);
 
     try {
-      for (let i = 0; i < files.length; i++) {
+      for (
+        let i = 0;
+        i < files.length;
+        i++
+      ) {
         const file = files[i];
 
-        if (!file.type.startsWith("image/")) {
-          alert(`${file.name} no es una imagen válida.`);
+        if (
+          !file.type.startsWith(
+            "image/"
+          )
+        ) {
+          alert(
+            `${file.name} no es una imagen válida.`
+          );
           continue;
         }
 
@@ -556,7 +893,8 @@ function Admin() {
           file.name
             .split(".")
             .pop()
-            ?.toLowerCase() || "jpg";
+            ?.toLowerCase() ||
+          "jpg";
 
         const nombreArchivo =
           `${productoId}-${Date.now()}-${i}-${Math.random()
@@ -593,7 +931,9 @@ function Admin() {
           data: publicUrlData,
         } = supabase.storage
           .from("PRODUCTOS")
-          .getPublicUrl(nombreArchivo);
+          .getPublicUrl(
+            nombreArchivo
+          );
 
         const url =
           publicUrlData.publicUrl;
@@ -613,7 +953,8 @@ function Admin() {
           .insert({
             producto_id: productoId,
             image_url: url,
-            orden: ordenInicial + i,
+            orden:
+              ordenInicial + i,
           });
 
         if (errorBD) {
@@ -646,12 +987,22 @@ function Admin() {
     files: File[],
     varianteId: number
   ) {
-    if (!files || files.length === 0) return;
+    if (!files || files.length === 0) {
+      return;
+    }
 
-    for (let i = 0; i < files.length; i++) {
+    for (
+      let i = 0;
+      i < files.length;
+      i++
+    ) {
       const file = files[i];
 
-      if (!file.type.startsWith("image/")) {
+      if (
+        !file.type.startsWith(
+          "image/"
+        )
+      ) {
         continue;
       }
 
@@ -659,7 +1010,8 @@ function Admin() {
         file.name
           .split(".")
           .pop()
-          ?.toLowerCase() || "jpg";
+          ?.toLowerCase() ||
+        "jpg";
 
       const nombreArchivo =
         `variante-${varianteId}-${Date.now()}-${i}-${Math.random()
@@ -692,7 +1044,9 @@ function Admin() {
         data: publicUrlData,
       } = supabase.storage
         .from("PRODUCTOS")
-        .getPublicUrl(nombreArchivo);
+        .getPublicUrl(
+          nombreArchivo
+        );
 
       const url =
         publicUrlData.publicUrl;
@@ -702,7 +1056,9 @@ function Admin() {
       const {
         error: errorBD,
       } = await supabase
-        .from("ProductoVarianteImagenes")
+        .from(
+          "ProductoVarianteImagenes"
+        )
         .insert({
           variante_id: varianteId,
           image_url: url,
@@ -724,18 +1080,41 @@ function Admin() {
 
   async function crearProducto() {
     if (!nuevoProducto.name.trim()) {
-      alert("El producto necesita un nombre.");
+      alert(
+        "El producto necesita un nombre."
+      );
       return;
     }
 
     if (nuevoProducto.price < 0) {
-      alert("El precio no puede ser negativo.");
+      alert(
+        "El precio no puede ser negativo."
+      );
       return;
     }
 
     if (nuevoProducto.stock < 0) {
-      alert("El stock no puede ser negativo.");
+      alert(
+        "El stock no puede ser negativo."
+      );
       return;
+    }
+
+    for (const [
+      clave,
+      precio,
+    ] of Object.entries(
+      preciosPorColor
+    )) {
+      if (Number(precio) < 0) {
+        alert(
+          `El precio de la combinación ${clave.replace(
+            "__",
+            " - "
+          )} no puede ser negativo.`
+        );
+        return;
+      }
     }
 
     setGuardando(true);
@@ -747,13 +1126,21 @@ function Admin() {
       } = await supabase
         .from("Productos")
         .insert({
-          name: nuevoProducto.name.trim(),
+          name:
+            nuevoProducto.name.trim(),
           description:
             nuevoProducto.description.trim(),
-          price: Number(nuevoProducto.price),
+          price:
+            Number(
+              nuevoProducto.price
+            ),
           image: "",
-          category: nuevoProducto.category,
-          stock: Number(nuevoProducto.stock),
+          category:
+            nuevoProducto.category,
+          stock:
+            Number(
+              nuevoProducto.stock
+            ),
           tiene_talle:
             nuevoProducto.tiene_talle,
           talles:
@@ -764,7 +1151,10 @@ function Admin() {
         .select()
         .single();
 
-      if (error || !productoCreado) {
+      if (
+        error ||
+        !productoCreado
+      ) {
         console.error(
           "ERROR AL CREAR:",
           error
@@ -783,18 +1173,21 @@ function Admin() {
       let urls: string[] = [];
 
       if (
-        imagenesSeleccionadas.length > 0
+        imagenesSeleccionadas.length >
+        0
       ) {
-        urls = await subirImagenes(
-          imagenesSeleccionadas,
-          productoCreado.id,
-          0
-        );
+        urls =
+          await subirImagenes(
+            imagenesSeleccionadas,
+            productoCreado.id,
+            0
+          );
       }
 
       if (urls.length > 0) {
         const {
-          error: errorPrincipal,
+          error:
+            errorPrincipal,
         } = await supabase
           .from("Productos")
           .update({
@@ -813,45 +1206,51 @@ function Admin() {
         }
       }
 
-      // =========================
       // CREAR VARIANTES
-      // =========================
 
-      if (nuevoProducto.tiene_talle) {
-        for (const talle of nuevoProducto.talles) {
+      if (
+        nuevoProducto.tiene_talle
+      ) {
+        for (
+          const talle of nuevoProducto.talles
+        ) {
           const colores =
-            coloresPorTalle[talle] || [];
+            coloresPorTalle[
+              talle
+            ] || [];
 
-          for (const color of colores) {
+          for (
+            const color of colores
+          ) {
             const clave =
-              `${talle}__${color}`;
-
-            /*
-             * Por ahora, cuando se crea una variante,
-             * usamos el precio que se haya indicado
-             * para esa combinación.
-             *
-             * La interfaz de precio individual
-             * está en la PARTE 2.
-             */
+              clavePrecioNuevo(
+                talle,
+                color
+              );
 
             const precioGuardado =
               Number(
-                nuevoProducto.price || 0
+                preciosPorColor[
+                  clave
+                ] ??
+                  nuevoProducto.price ??
+                  0
               );
 
             const {
-              data: varianteCreada,
-              error: errorVariante,
+              data:
+                varianteCreada,
+              error:
+                errorVariante,
             } = await supabase
-              .from("ProductoVariantes")
+              .from(
+                "ProductoVariantes"
+              )
               .insert({
                 producto_id:
                   productoCreado.id,
-                talle:
-                  talle,
-                color:
-                  color,
+                talle,
+                color,
                 precio:
                   precioGuardado,
               })
@@ -871,9 +1270,13 @@ function Admin() {
             }
 
             const fotos =
-              fotosPorColor[clave] || [];
+              fotosPorColor[
+                clave
+              ] || [];
 
-            if (fotos.length > 0) {
+            if (
+              fotos.length > 0
+            ) {
               await subirImagenesDeVariante(
                 fotos,
                 varianteCreada.id!
@@ -884,7 +1287,7 @@ function Admin() {
       }
 
       alert(
-        "Producto creado correctamente ✅"
+        "Producto creado correctamente."
       );
 
       setNuevoProducto({
@@ -892,12 +1295,15 @@ function Admin() {
         talles: [],
       });
 
-      setImagenesSeleccionadas([]);
+      setImagenesSeleccionadas(
+        []
+      );
       setNuevoTalle("");
       setNuevoColor("");
       setTalleParaColor("");
       setColoresPorTalle({});
       setFotosPorColor({});
+      setPreciosPorColor({});
       setFotosNuevasVariantes({});
       setMostrarNuevo(false);
     } finally {
@@ -927,7 +1333,10 @@ function Admin() {
     } = await supabase
       .from("ProductoImagenes")
       .delete()
-      .eq("id", imagen.id);
+      .eq(
+        "id",
+        imagen.id
+      );
 
     if (error) {
       console.error(
@@ -950,7 +1359,8 @@ function Admin() {
         imagenesProducto[
           editando.id
         ]?.filter(
-          (i) => i.id !== imagen.id
+          (i) =>
+            i.id !== imagen.id
         ) || [];
 
       const nuevaPrincipal =
@@ -960,7 +1370,8 @@ function Admin() {
       await supabase
         .from("Productos")
         .update({
-          image: nuevaPrincipal,
+          image:
+            nuevaPrincipal,
         })
         .eq(
           "id",
@@ -969,7 +1380,8 @@ function Admin() {
 
       setEditando({
         ...editando,
-        image: nuevaPrincipal,
+        image:
+          nuevaPrincipal,
       });
     }
 
@@ -1032,6 +1444,7 @@ function Admin() {
     );
 
     setEditando(null);
+
     await cargarProductos();
   }
 
@@ -1063,6 +1476,27 @@ function Admin() {
       return;
     }
 
+    const variantesDelProducto =
+      variantes.filter(
+        (variante) =>
+          variante.producto_id ===
+          editando.id
+      );
+
+    for (
+      const variante of variantesDelProducto
+    ) {
+      if (
+        Number(variante.precio) <
+        0
+      ) {
+        alert(
+          `El precio de ${variante.talle} - ${variante.color} no puede ser negativo.`
+        );
+        return;
+      }
+    }
+
     setGuardando(true);
 
     try {
@@ -1077,13 +1511,17 @@ function Admin() {
             editando.description?.trim() ||
             "",
           price:
-            Number(editando.price),
+            Number(
+              editando.price
+            ),
           image:
             editando.image || "",
           category:
             editando.category || [],
           stock:
-            Number(editando.stock),
+            Number(
+              editando.stock
+            ),
           tiene_talle:
             editando.tiene_talle,
           talles:
@@ -1109,27 +1547,32 @@ function Admin() {
         return;
       }
 
-      // =========================
       // ACTUALIZAR VARIANTES EXISTENTES
-      // =========================
 
       const variantesExistentes =
         variantes.filter(
           (variante) =>
             variante.producto_id ===
               editando.id &&
-            variante.id !== undefined
+            variante.id !==
+              undefined
         );
 
-      for (const variante of variantesExistentes) {
+      for (
+        const variante of variantesExistentes
+      ) {
         const {
-          error: errorPrecio,
+          error:
+            errorPrecio,
         } = await supabase
-          .from("ProductoVariantes")
+          .from(
+            "ProductoVariantes"
+          )
           .update({
             precio:
               Number(
-                variante.precio || 0
+                variante.precio ||
+                  0
               ),
           })
           .eq(
@@ -1144,15 +1587,15 @@ function Admin() {
           );
         }
 
-        /*
-         * Si elegimos fotos nuevas para esta variante,
-         * las subimos ahora.
-         */
         const clave =
-          claveVariante(variante);
+          claveVariante(
+            variante
+          );
 
         const fotos =
-          fotosNuevasVariantes[clave] || [];
+          fotosNuevasVariantes[
+            clave
+          ] || [];
 
         if (
           variante.id &&
@@ -1165,24 +1608,29 @@ function Admin() {
         }
       }
 
-      // =========================
       // INSERTAR VARIANTES NUEVAS
-      // =========================
 
       const variantesNuevas =
         variantes.filter(
           (variante) =>
             variante.producto_id ===
               editando.id &&
-            variante.id === undefined
+            variante.id ===
+              undefined
         );
 
-      for (const variante of variantesNuevas) {
+      for (
+        const variante of variantesNuevas
+      ) {
         const {
-          data: varianteCreada,
-          error: errorVariante,
+          data:
+            varianteCreada,
+          error:
+            errorVariante,
         } = await supabase
-          .from("ProductoVariantes")
+          .from(
+            "ProductoVariantes"
+          )
           .insert({
             producto_id:
               editando.id,
@@ -1212,31 +1660,34 @@ function Admin() {
           continue;
         }
 
-        /*
-         * Subimos las fotos que se hayan elegido
-         * para la variante nueva.
-         */
         const clave =
-          claveVariante(variante);
+          claveVariante(
+            variante
+          );
 
         const fotos =
-          fotosNuevasVariantes[clave] || [];
+          fotosNuevasVariantes[
+            clave
+          ] || [];
 
-        if (fotos.length > 0) {
+        if (
+          fotos.length > 0
+        ) {
           await subirImagenesDeVariante(
             fotos,
             varianteCreada.id!
           );
         }
 
-        // Reemplazamos la variante temporal
-        // por la variante real de Supabase.
         setVariantes(
-          (variantesActuales) =>
+          (
+            variantesActuales
+          ) =>
             variantesActuales.map(
               (v) => {
                 if (
-                  v.id === undefined &&
+                  v.id ===
+                    undefined &&
                   v.producto_id ===
                     variante.producto_id &&
                   v.talle ===
@@ -1253,9 +1704,7 @@ function Admin() {
         );
       }
 
-      // =========================
       // IMÁGENES GENERALES
-      // =========================
 
       const imagenesActuales =
         imagenesProducto[
@@ -1263,7 +1712,8 @@ function Admin() {
         ] || [];
 
       if (
-        imagenesSeleccionadas.length > 0
+        imagenesSeleccionadas.length >
+        0
       ) {
         await subirImagenes(
           imagenesSeleccionadas,
@@ -1273,10 +1723,12 @@ function Admin() {
       }
 
       alert(
-        "Cambios guardados correctamente ✅"
+        "Cambios guardados correctamente."
       );
 
-      setImagenesSeleccionadas([]);
+      setImagenesSeleccionadas(
+        []
+      );
       setFotosNuevasVariantes({});
       setEditando(null);
       setNuevoTalleEditando("");
@@ -1288,15 +1740,20 @@ function Admin() {
       setGuardando(false);
     }
   }
+
   // =========================
   // ABRIR EDICIÓN
   // =========================
 
-  function abrirEdicion(producto: Producto) {
+  function abrirEdicion(
+    producto: Producto
+  ) {
     setEditando({
       ...producto,
-      category: producto.category || [],
-      talles: producto.talles || [],
+      category:
+        producto.category || [],
+      talles:
+        producto.talles || [],
     });
 
     setMostrarNuevo(false);
@@ -1324,39 +1781,53 @@ function Admin() {
   // AGREGAR COLOR AL EDITAR
   // =========================
 
-  function agregarColorEditando(talle: string) {
+  function agregarColorEditando(
+    talle: string
+  ) {
     if (!editando) return;
 
-    const color = nuevoColor.trim();
+    const color =
+      nuevoColor.trim();
 
     if (!color) {
       alert("Ingresá un color.");
       return;
     }
 
-    const yaExiste = variantes.some(
-      (v) =>
-        v.producto_id === editando.id &&
-        v.talle === talle &&
-        v.color.toLowerCase() === color.toLowerCase()
-    );
+    const yaExiste =
+      variantes.some(
+        (v) =>
+          v.producto_id ===
+            editando.id &&
+          v.talle === talle &&
+          v.color.toLowerCase() ===
+            color.toLowerCase()
+      );
 
     if (yaExiste) {
-      alert("Ese color ya existe para ese talle.");
+      alert(
+        "Ese color ya existe para ese talle."
+      );
       return;
     }
 
     const nuevaVariante: Variante = {
-      producto_id: editando.id,
+      producto_id:
+        editando.id,
       talle,
       color,
-      precio: Number(editando.price || 0),
+      precio:
+        Number(
+          editando.price || 0
+        ),
     };
 
-    setVariantes((actuales) => [
-      ...actuales,
-      nuevaVariante,
-    ]);
+    setVariantes(
+      (actuales) => [
+        ...actuales,
+        nuevaVariante,
+      ]
+    );
 
     setNuevoColor("");
     setTalleParaColor("");
@@ -1366,36 +1837,56 @@ function Admin() {
   // ELIMINAR VARIANTE
   // =========================
 
-  async function eliminarVariante(variante: Variante) {
-    const confirmar = window.confirm(
-      `¿Querés eliminar la variante ${variante.talle} - ${variante.color}?`
-    );
+  async function eliminarVariante(
+    variante: Variante
+  ) {
+    const confirmar =
+      window.confirm(
+        `¿Querés eliminar la variante ${variante.talle} - ${variante.color}?`
+      );
 
     if (!confirmar) return;
 
-    // Si todavía no existe en Supabase,
-    // solamente la quitamos de la pantalla.
     if (!variante.id) {
-      setVariantes((actuales) =>
-        actuales.filter((v) => v !== variante)
+      setVariantes(
+        (actuales) =>
+          actuales.filter(
+            (v) =>
+              v !== variante
+          )
       );
 
-      const clave = claveVariante(variante);
+      const clave =
+        claveVariante(
+          variante
+        );
 
-      setFotosNuevasVariantes((actuales) => {
-        const copia = { ...actuales };
-        delete copia[clave];
-        return copia;
-      });
+      setFotosNuevasVariantes(
+        (actuales) => {
+          const copia = {
+            ...actuales,
+          };
+
+          delete copia[clave];
+
+          return copia;
+        }
+      );
 
       return;
     }
 
-    // Eliminar fotos de la variante
-    const { error: errorFotos } = await supabase
-      .from("ProductoVarianteImagenes")
+    const {
+      error: errorFotos,
+    } = await supabase
+      .from(
+        "ProductoVarianteImagenes"
+      )
       .delete()
-      .eq("variante_id", variante.id);
+      .eq(
+        "variante_id",
+        variante.id
+      );
 
     if (errorFotos) {
       console.error(
@@ -1404,11 +1895,16 @@ function Admin() {
       );
     }
 
-    // Eliminar variante
-    const { error } = await supabase
-      .from("ProductoVariantes")
-      .delete()
-      .eq("id", variante.id);
+    const { error } =
+      await supabase
+        .from(
+          "ProductoVariantes"
+        )
+        .delete()
+        .eq(
+          "id",
+          variante.id
+        );
 
     if (error) {
       console.error(
@@ -1423,21 +1919,30 @@ function Admin() {
       return;
     }
 
-    setVariantes((actuales) =>
-      actuales.filter(
-        (v) => v.id !== variante.id
-      )
+    setVariantes(
+      (actuales) =>
+        actuales.filter(
+          (v) =>
+            v.id !==
+            variante.id
+        )
     );
 
-    setImagenesVariantes((actuales) => {
-      const copia = { ...actuales };
+    setImagenesVariantes(
+      (actuales) => {
+        const copia = {
+          ...actuales,
+        };
 
-      if (variante.id) {
-        delete copia[variante.id];
+        if (variante.id) {
+          delete copia[
+            variante.id
+          ];
+        }
+
+        return copia;
       }
-
-      return copia;
-    });
+    );
 
     await cargarVariantes();
   }
@@ -1446,64 +1951,81 @@ function Admin() {
   // PRODUCTOS FILTRADOS
   // =========================
 
-  const productosFiltrados = useMemo(() => {
-    const texto = busqueda
-      .trim()
-      .toLowerCase();
+  const productosFiltrados =
+    useMemo(() => {
+      const texto =
+        busqueda
+          .trim()
+          .toLowerCase();
 
-    if (!texto) {
-      return productos;
-    }
+      if (!texto) {
+        return productos;
+      }
 
-    return productos.filter((producto) => {
-      const nombre =
-        producto.name?.toLowerCase() || "";
+      return productos.filter(
+        (producto) => {
+          const nombre =
+            producto.name?.toLowerCase() ||
+            "";
 
-      const descripcion =
-        producto.description?.toLowerCase() || "";
+          const descripcion =
+            producto.description?.toLowerCase() ||
+            "";
 
-      const categorias =
-        producto.category
-          ?.join(" ")
-          .toLowerCase() || "";
+          const categorias =
+            producto.category
+              ?.join(" ")
+              .toLowerCase() ||
+              "";
 
-      return (
-        nombre.includes(texto) ||
-        descripcion.includes(texto) ||
-        categorias.includes(texto)
+          return (
+            nombre.includes(
+              texto
+            ) ||
+            descripcion.includes(
+              texto
+            ) ||
+            categorias.includes(
+              texto
+            )
+          );
+        }
       );
-    });
-  }, [productos, busqueda]);
+    }, [productos, busqueda]);
 
   // =========================
   // ESTILOS
   // =========================
 
-  const inputStyle: React.CSSProperties = {
-    width: "100%",
-    padding: "11px 12px",
-    border: "1px solid #d8ddd8",
-    borderRadius: "8px",
-    fontSize: "14px",
-    boxSizing: "border-box",
-    background: "#fff",
-  };
+  const inputStyle: React.CSSProperties =
+    {
+      width: "100%",
+      padding: "11px 12px",
+      border:
+        "1px solid #d8ddd8",
+      borderRadius: "8px",
+      fontSize: "14px",
+      boxSizing: "border-box",
+      background: "#fff",
+    };
 
-  const labelStyle: React.CSSProperties = {
-    display: "block",
-    fontSize: "14px",
-    fontWeight: 600,
-    marginBottom: "6px",
-    color: "#263d2d",
-  };
+  const labelStyle: React.CSSProperties =
+    {
+      display: "block",
+      fontSize: "14px",
+      fontWeight: 600,
+      marginBottom: "6px",
+      color: "#263d2d",
+    };
 
-  const buttonStyle: React.CSSProperties = {
-    border: "none",
-    borderRadius: "8px",
-    padding: "10px 15px",
-    cursor: "pointer",
-    fontWeight: 600,
-  };
+  const buttonStyle: React.CSSProperties =
+    {
+      border: "none",
+      borderRadius: "8px",
+      padding: "10px 15px",
+      cursor: "pointer",
+      fontWeight: 600,
+    };
 
   // =========================
   // CARGANDO SESIÓN
@@ -1516,7 +2038,8 @@ function Admin() {
           minHeight: "100vh",
           display: "flex",
           alignItems: "center",
-          justifyContent: "center",
+          justifyContent:
+            "center",
           background: "#f0ead2",
           color: "#263d2d",
         }}
@@ -1538,7 +2061,8 @@ function Admin() {
           background: "#f0ead2",
           display: "flex",
           alignItems: "center",
-          justifyContent: "center",
+          justifyContent:
+            "center",
           padding: "20px",
           boxSizing: "border-box",
         }}
@@ -1583,7 +2107,9 @@ function Admin() {
             type="email"
             value={email}
             onChange={(e) =>
-              setEmail(e.target.value)
+              setEmail(
+                e.target.value
+              )
             }
             placeholder="Tu email"
             style={{
@@ -1600,7 +2126,9 @@ function Admin() {
             type="password"
             value={password}
             onChange={(e) =>
-              setPassword(e.target.value)
+              setPassword(
+                e.target.value
+              )
             }
             placeholder="Tu contraseña"
             style={{
@@ -1608,23 +2136,31 @@ function Admin() {
               marginBottom: "20px",
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
+              if (
+                e.key === "Enter"
+              ) {
                 iniciarSesion();
               }
             }}
           />
 
           <button
-            onClick={iniciarSesion}
-            disabled={iniciandoSesion}
+            onClick={
+              iniciarSesion
+            }
+            disabled={
+              iniciandoSesion
+            }
             style={{
               ...buttonStyle,
               width: "100%",
-              background: "#263d2d",
+              background:
+                "#263d2d",
               color: "#fff",
-              opacity: iniciandoSesion
-                ? 0.7
-                : 1,
+              opacity:
+                iniciandoSesion
+                  ? 0.7
+                  : 1,
             }}
           >
             {iniciandoSesion
@@ -1639,6 +2175,13 @@ function Admin() {
   // =========================
   // ADMIN
   // =========================
+
+  const pedidosPendientes =
+    pedidos.filter(
+      (pedido) =>
+        pedido.estado ===
+        "pendiente"
+    ).length;
 
   return (
     <div
@@ -1660,7 +2203,8 @@ function Admin() {
         <div
           style={{
             display: "flex",
-            justifyContent: "space-between",
+            justifyContent:
+              "space-between",
             alignItems: "center",
             gap: "15px",
             flexWrap: "wrap",
@@ -1680,7 +2224,8 @@ function Admin() {
 
             <p
               style={{
-                margin: "5px 0 0",
+                margin:
+                  "5px 0 0",
                 color: "#666",
               }}
             >
@@ -1697,25 +2242,49 @@ function Admin() {
           >
             <button
               onClick={() => {
-                setMostrarNuevo(true);
-                setEditando(null);
+                setMostrarNuevo(
+                  true
+                );
+                setEditando(
+                  null
+                );
 
-                setNuevoProducto({
-                  ...productoVacio,
-                  talles: [],
-                });
+                setNuevoProducto(
+                  {
+                    ...productoVacio,
+                    talles: [],
+                  }
+                );
 
-                setImagenesSeleccionadas([]);
-                setColoresPorTalle({});
-                setFotosPorColor({});
-                setFotosNuevasVariantes({});
-                setNuevoTalle("");
-                setNuevoColor("");
-                setTalleParaColor("");
+                setImagenesSeleccionadas(
+                  []
+                );
+                setColoresPorTalle(
+                  {}
+                );
+                setFotosPorColor(
+                  {}
+                );
+                setPreciosPorColor(
+                  {}
+                );
+                setFotosNuevasVariantes(
+                  {}
+                );
+                setNuevoTalle(
+                  ""
+                );
+                setNuevoColor(
+                  ""
+                );
+                setTalleParaColor(
+                  ""
+                );
               }}
               style={{
                 ...buttonStyle,
-                background: "#263d2d",
+                background:
+                  "#263d2d",
                 color: "#fff",
               }}
             >
@@ -1723,12 +2292,17 @@ function Admin() {
             </button>
 
             <button
-              onClick={cerrarSesion}
+              onClick={
+                cerrarSesion
+              }
               style={{
                 ...buttonStyle,
-                background: "#fff",
-                color: "#263d2d",
-                border: "1px solid #263d2d",
+                background:
+                  "#fff",
+                color:
+                  "#263d2d",
+                border:
+                  "1px solid #263d2d",
               }}
             >
               Cerrar sesión
@@ -1736,7 +2310,671 @@ function Admin() {
           </div>
         </div>
 
-        {/* BUSCADOR */}
+        {/* =========================
+            PEDIDOS
+        ========================= */}
+
+        <div
+          style={{
+            background: "#fff",
+            borderRadius: "14px",
+            padding: "20px",
+            marginBottom: "25px",
+            boxShadow:
+              "0 4px 20px rgba(0,0,0,0.06)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent:
+                "space-between",
+              alignItems: "center",
+              gap: "10px",
+              flexWrap: "wrap",
+              marginBottom: "15px",
+            }}
+          >
+            <div>
+              <h2
+                style={{
+                  margin: 0,
+                  color: "#263d2d",
+                }}
+              >
+                Pedidos
+              </h2>
+
+              <p
+                style={{
+                  margin:
+                    "5px 0 0",
+                  color: "#666",
+                  fontSize: "14px",
+                }}
+              >
+                {pedidosPendientes}{" "}
+                pendiente
+                {pedidosPendientes !==
+                1
+                  ? "s"
+                  : ""}
+              </p>
+            </div>
+
+            <button
+              onClick={() => {
+                cargarPedidos();
+                cargarProductos();
+              }}
+              disabled={
+                cargandoPedidos
+              }
+              style={{
+                ...buttonStyle,
+                background:
+                  "#e5eadf",
+                color:
+                  "#263d2d",
+              }}
+            >
+              {cargandoPedidos
+                ? "Actualizando..."
+                : "Actualizar"}
+            </button>
+          </div>
+
+          {cargandoPedidos ? (
+            <div
+              style={{
+                padding: "25px",
+                textAlign:
+                  "center",
+                color: "#666",
+              }}
+            >
+              Cargando pedidos...
+            </div>
+          ) : pedidos.length ===
+            0 ? (
+            <div
+              style={{
+                padding: "25px",
+                textAlign:
+                  "center",
+                color: "#777",
+                background:
+                  "#f8f8f4",
+                borderRadius:
+                  "10px",
+              }}
+            >
+              No hay pedidos todavía.
+            </div>
+          ) : (
+            <div
+              style={{
+                display: "flex",
+                flexDirection:
+                  "column",
+                gap: "12px",
+              }}
+            >
+              {pedidos.map(
+                (pedido) => {
+                  const items =
+                    pedidoItems[
+                      pedido.id
+                    ] || [];
+
+                  const abierto =
+                    pedidoAbierto ===
+                    pedido.id;
+
+                  const procesando =
+                    procesandoPedido ===
+                    pedido.id;
+
+                  return (
+                    <div
+                      key={
+                        pedido.id
+                      }
+                      style={{
+                        border:
+                          "1px solid #ddd",
+                        borderRadius:
+                          "12px",
+                        overflow:
+                          "hidden",
+                        background:
+                          "#fafafa",
+                      }}
+                    >
+                      <div
+                        style={{
+                          padding:
+                            "15px",
+                          background:
+                            "#fff",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display:
+                              "flex",
+                            justifyContent:
+                              "space-between",
+                            alignItems:
+                              "flex-start",
+                            gap: "15px",
+                            flexWrap:
+                              "wrap",
+                          }}
+                        >
+                          <div>
+                            <div
+                              style={{
+                                display:
+                                  "flex",
+                                alignItems:
+                                  "center",
+                                gap: "10px",
+                                flexWrap:
+                                  "wrap",
+                              }}
+                            >
+                              <strong
+                                style={{
+                                  color:
+                                    "#263d2d",
+                                  fontSize:
+                                    "18px",
+                                }}
+                              >
+                                Pedido #
+                                {
+                                  pedido.id
+                                }
+                              </strong>
+
+                              <span
+                                style={{
+                                  padding:
+                                    "5px 10px",
+                                  borderRadius:
+                                    "20px",
+                                  fontSize:
+                                    "12px",
+                                  fontWeight:
+                                    700,
+                                  background:
+                                    pedido.estado ===
+                                    "pendiente"
+                                      ? "#fff2c2"
+                                      : pedido.estado ===
+                                        "confirmado"
+                                      ? "#dcefdc"
+                                      : "#f1dede",
+                                  color:
+                                    pedido.estado ===
+                                    "pendiente"
+                                      ? "#856404"
+                                      : pedido.estado ===
+                                        "confirmado"
+                                      ? "#286228"
+                                      : "#9b3333",
+                                }}
+                              >
+                                {pedido.estado ===
+                                "pendiente"
+                                  ? "Pendiente"
+                                  : pedido.estado ===
+                                    "confirmado"
+                                  ? "Confirmado"
+                                  : "Cancelado"}
+                              </span>
+                            </div>
+
+                            <p
+                              style={{
+                                margin:
+                                  "7px 0 0",
+                                fontSize:
+                                  "13px",
+                                color:
+                                  "#777",
+                              }}
+                            >
+                              {new Date(
+                                pedido.fecha
+                              ).toLocaleString(
+                                "es-AR"
+                              )}
+                            </p>
+                          </div>
+
+                          <strong
+                            style={{
+                              color:
+                                "#263d2d",
+                              fontSize:
+                                "20px",
+                            }}
+                          >
+                            $
+                            {Number(
+                              pedido.total
+                            ).toLocaleString(
+                              "es-AR"
+                            )}
+                          </strong>
+                        </div>
+
+                        <div
+                          style={{
+                            display:
+                              "grid",
+                            gridTemplateColumns:
+                              "repeat(auto-fit, minmax(220px, 1fr))",
+                            gap: "10px",
+                            marginTop:
+                              "15px",
+                            fontSize:
+                              "14px",
+                          }}
+                        >
+                          <div>
+                            <strong>
+                              Cliente:
+                            </strong>{" "}
+                            {
+                              pedido.nombre
+                            }{" "}
+                            {
+                              pedido.apellido
+                            }
+                          </div>
+
+                          <div>
+                            <strong>
+                              Teléfono:
+                            </strong>{" "}
+                            {
+                              pedido.telefono
+                            }
+                          </div>
+
+                          <div>
+                            <strong>
+                              Email:
+                            </strong>{" "}
+                            {
+                              pedido.email
+                            }
+                          </div>
+
+                          <div>
+                            <strong>
+                              Dirección:
+                            </strong>{" "}
+                            {
+                              pedido.direccion
+                            }
+                          </div>
+
+                          <div>
+                            <strong>
+                              C.P.:
+                            </strong>{" "}
+                            {
+                              pedido.codigo_postal
+                            }
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            display:
+                              "flex",
+                            gap: "8px",
+                            flexWrap:
+                              "wrap",
+                            marginTop:
+                              "15px",
+                          }}
+                        >
+                          <button
+                            onClick={() =>
+                              setPedidoAbierto(
+                                abierto
+                                  ? null
+                                  : pedido.id
+                              )
+                            }
+                            style={{
+                              ...buttonStyle,
+                              background:
+                                "#e5eadf",
+                              color:
+                                "#263d2d",
+                            }}
+                          >
+                            {abierto
+                              ? "Ocultar detalle"
+                              : "Ver detalle"}
+                          </button>
+
+                          {pedido.estado ===
+                            "pendiente" && (
+                            <>
+                              <button
+                                onClick={() =>
+                                  confirmarPedido(
+                                    pedido.id
+                                  )
+                                }
+                                disabled={
+                                  procesando
+                                }
+                                style={{
+                                  ...buttonStyle,
+                                  background:
+                                    "#263d2d",
+                                  color:
+                                    "#fff",
+                                  opacity:
+                                    procesando
+                                      ? 0.6
+                                      : 1,
+                                }}
+                              >
+                                {procesando
+                                  ? "Procesando..."
+                                  : "Confirmar"}
+                              </button>
+
+                              <button
+                                onClick={() =>
+                                  cancelarPedido(
+                                    pedido.id
+                                  )
+                                }
+                                disabled={
+                                  procesando
+                                }
+                                style={{
+                                  ...buttonStyle,
+                                  background:
+                                    "#f1dede",
+                                  color:
+                                    "#9b3333",
+                                  opacity:
+                                    procesando
+                                      ? 0.6
+                                      : 1,
+                                }}
+                              >
+                                Cancelar
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {abierto && (
+                        <div
+                          style={{
+                            borderTop:
+                              "1px solid #ddd",
+                            padding:
+                              "15px",
+                            background:
+                              "#f8f8f4",
+                          }}
+                        >
+                          <h3
+                            style={{
+                              margin:
+                                "0 0 12px",
+                              color:
+                                "#263d2d",
+                              fontSize:
+                                "16px",
+                            }}
+                          >
+                            Productos del pedido
+                          </h3>
+
+                          {items.length ===
+                          0 ? (
+                            <p
+                              style={{
+                                color:
+                                  "#777",
+                                fontSize:
+                                  "13px",
+                              }}
+                            >
+                              No se encontraron
+                              productos
+                              para este
+                              pedido.
+                            </p>
+                          ) : (
+                            <div
+                              style={{
+                                display:
+                                  "flex",
+                                flexDirection:
+                                  "column",
+                                gap: "10px",
+                              }}
+                            >
+                              {items.map(
+                                (item) => (
+                                  <div
+                                    key={
+                                      item.id
+                                    }
+                                    style={{
+                                      display:
+                                        "flex",
+                                      alignItems:
+                                        "center",
+                                      gap: "12px",
+                                      background:
+                                        "#fff",
+                                      padding:
+                                        "10px",
+                                      borderRadius:
+                                        "10px",
+                                      border:
+                                        "1px solid #e1e1e1",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        width:
+                                          "65px",
+                                        height:
+                                          "65px",
+                                        flexShrink:
+                                          0,
+                                        borderRadius:
+                                          "8px",
+                                        overflow:
+                                          "hidden",
+                                        background:
+                                          "#eee",
+                                        display:
+                                          "flex",
+                                        alignItems:
+                                          "center",
+                                        justifyContent:
+                                          "center",
+                                      }}
+                                    >
+                                      {item.imagen ? (
+                                        <img
+                                          src={
+                                            item.imagen
+                                          }
+                                          alt={
+                                            item.nombre_producto
+                                          }
+                                          style={{
+                                            width:
+                                              "100%",
+                                            height:
+                                              "100%",
+                                            objectFit:
+                                              "cover",
+                                          }}
+                                        />
+                                      ) : (
+                                        <span
+                                          style={{
+                                            color:
+                                              "#999",
+                                            fontSize:
+                                              "10px",
+                                          }}
+                                        >
+                                          Sin imagen
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    <div
+                                      style={{
+                                        flex: 1,
+                                        minWidth:
+                                          0,
+                                      }}
+                                    >
+                                      <strong
+                                        style={{
+                                          color:
+                                            "#263d2d",
+                                          display:
+                                            "block",
+                                        }}
+                                      >
+                                        {
+                                          item.nombre_producto
+                                        }
+                                      </strong>
+
+                                      {(item.talle ||
+                                        item.color) && (
+                                        <p
+                                          style={{
+                                            margin:
+                                              "4px 0",
+                                            fontSize:
+                                              "12px",
+                                            color:
+                                              "#666",
+                                          }}
+                                        >
+                                          {item.talle &&
+                                            `Talle: ${item.talle}`}
+                                          {item.talle &&
+                                            item.color &&
+                                            " • "}
+                                          {item.color &&
+                                            `Color: ${item.color}`}
+                                        </p>
+                                      )}
+
+                                      <p
+                                        style={{
+                                          margin:
+                                            0,
+                                          fontSize:
+                                            "13px",
+                                          color:
+                                            "#555",
+                                        }}
+                                      >
+                                        Cantidad:{" "}
+                                        {
+                                          item.cantidad
+                                        }{" "}
+                                        × $
+                                        {Number(
+                                          item.precio_unitario
+                                        ).toLocaleString(
+                                          "es-AR"
+                                        )}
+                                      </p>
+                                    </div>
+
+                                    <strong
+                                      style={{
+                                        color:
+                                          "#263d2d",
+                                        whiteSpace:
+                                          "nowrap",
+                                      }}
+                                    >
+                                      $
+                                      {Number(
+                                        item.subtotal
+                                      ).toLocaleString(
+                                        "es-AR"
+                                      )}
+                                    </strong>
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          )}
+
+                          <div
+                            style={{
+                              display:
+                                "flex",
+                              justifyContent:
+                                "flex-end",
+                              marginTop:
+                                "15px",
+                              paddingTop:
+                                "12px",
+                              borderTop:
+                                "1px solid #ddd",
+                            }}
+                          >
+                            <strong
+                              style={{
+                                fontSize:
+                                  "18px",
+                                color:
+                                  "#263d2d",
+                              }}
+                            >
+                              Total: $
+                              {Number(
+                                pedido.total
+                              ).toLocaleString(
+                                "es-AR"
+                              )}
+                            </strong>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* =========================
+            BUSCADOR
+        ========================= */}
 
         <div
           style={{
@@ -1751,13 +2989,17 @@ function Admin() {
             placeholder="Buscar producto..."
             value={busqueda}
             onChange={(e) =>
-              setBusqueda(e.target.value)
+              setBusqueda(
+                e.target.value
+              )
             }
             style={inputStyle}
           />
         </div>
 
-        {/* FORMULARIO NUEVO */}
+        {/* =========================
+            FORMULARIO NUEVO
+        ========================= */}
 
         {mostrarNuevo && (
           <div
@@ -1773,9 +3015,12 @@ function Admin() {
             <div
               style={{
                 display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: "20px",
+                justifyContent:
+                  "space-between",
+                alignItems:
+                  "center",
+                marginBottom:
+                  "20px",
                 gap: "10px",
               }}
             >
@@ -1790,23 +3035,36 @@ function Admin() {
 
               <button
                 onClick={() => {
-                  setMostrarNuevo(false);
-                  setImagenesSeleccionadas([]);
-                  setColoresPorTalle({});
-                  setFotosPorColor({});
-                  setFotosNuevasVariantes({});
+                  setMostrarNuevo(
+                    false
+                  );
+                  setImagenesSeleccionadas(
+                    []
+                  );
+                  setColoresPorTalle(
+                    {}
+                  );
+                  setFotosPorColor(
+                    {}
+                  );
+                  setPreciosPorColor(
+                    {}
+                  );
+                  setFotosNuevasVariantes(
+                    {}
+                  );
                 }}
                 style={{
                   ...buttonStyle,
-                  background: "#eee",
-                  color: "#333",
+                  background:
+                    "#eee",
+                  color:
+                    "#333",
                 }}
               >
                 Cancelar
               </button>
             </div>
-
-            {/* DATOS BÁSICOS */}
 
             <div
               style={{
@@ -1817,90 +3075,133 @@ function Admin() {
               }}
             >
               <div>
-                <label style={labelStyle}>
+                <label
+                  style={labelStyle}
+                >
                   Nombre
                 </label>
 
                 <input
-                  value={nuevoProducto.name}
+                  value={
+                    nuevoProducto.name
+                  }
                   onChange={(e) =>
-                    setNuevoProducto({
-                      ...nuevoProducto,
-                      name: e.target.value,
-                    })
+                    setNuevoProducto(
+                      {
+                        ...nuevoProducto,
+                        name:
+                          e.target
+                            .value,
+                      }
+                    )
                   }
                   style={inputStyle}
                 />
               </div>
 
               <div>
-                <label style={labelStyle}>
+                <label
+                  style={labelStyle}
+                >
                   Precio general
                 </label>
 
                 <input
                   type="number"
                   min="0"
-                  value={nuevoProducto.price}
+                  value={
+                    nuevoProducto.price
+                  }
                   onChange={(e) =>
-                    setNuevoProducto({
-                      ...nuevoProducto,
-                      price: Number(
-                        e.target.value
-                      ),
-                    })
+                    setNuevoProducto(
+                      {
+                        ...nuevoProducto,
+                        price:
+                          Number(
+                            e.target
+                              .value
+                          ),
+                      }
+                    )
                   }
                   style={inputStyle}
                 />
               </div>
 
               <div>
-                <label style={labelStyle}>
+                <label
+                  style={labelStyle}
+                >
                   Stock
                 </label>
 
                 <input
                   type="number"
                   min="0"
-                  value={nuevoProducto.stock}
+                  value={
+                    nuevoProducto.stock
+                  }
                   onChange={(e) =>
-                    setNuevoProducto({
-                      ...nuevoProducto,
-                      stock: Number(
-                        e.target.value
-                      ),
-                    })
+                    setNuevoProducto(
+                      {
+                        ...nuevoProducto,
+                        stock:
+                          Number(
+                            e.target
+                              .value
+                          ),
+                      }
+                    )
                   }
                   style={inputStyle}
                 />
               </div>
             </div>
 
-            <div style={{ marginTop: "15px" }}>
-              <label style={labelStyle}>
+            <div
+              style={{
+                marginTop:
+                  "15px",
+              }}
+            >
+              <label
+                style={labelStyle}
+              >
                 Descripción
               </label>
 
               <textarea
-                value={nuevoProducto.description}
+                value={
+                  nuevoProducto.description
+                }
                 onChange={(e) =>
-                  setNuevoProducto({
-                    ...nuevoProducto,
-                    description: e.target.value,
-                  })
+                  setNuevoProducto(
+                    {
+                      ...nuevoProducto,
+                      description:
+                        e.target
+                          .value,
+                    }
+                  )
                 }
                 rows={4}
                 style={{
                   ...inputStyle,
-                  resize: "vertical",
+                  resize:
+                    "vertical",
                 }}
               />
             </div>
 
-            {/* CATEGORÍAS */}
-
-            <div style={{ marginTop: "20px" }}>
-              <label style={labelStyle}>
+            <div
+              style={{
+                marginTop:
+                  "20px",
+              }}
+            >
+              <label
+                style={labelStyle}
+              >
                 Categorías
               </label>
 
@@ -1908,18 +3209,24 @@ function Admin() {
                 style={{
                   display: "flex",
                   gap: "15px",
-                  flexWrap: "wrap",
+                  flexWrap:
+                    "wrap",
                 }}
               >
                 {categoriasDisponibles.map(
                   (categoria) => (
                     <label
-                      key={categoria}
+                      key={
+                        categoria
+                      }
                       style={{
-                        display: "flex",
-                        alignItems: "center",
+                        display:
+                          "flex",
+                        alignItems:
+                          "center",
                         gap: "6px",
-                        cursor: "pointer",
+                        cursor:
+                          "pointer",
                       }}
                     >
                       <input
@@ -1928,28 +3235,37 @@ function Admin() {
                           categoria
                         )}
                         onChange={() =>
-                          setNuevoProducto({
-                            ...nuevoProducto,
-                            category:
-                              alternarCategoria(
-                                nuevoProducto.category,
-                                categoria
-                              ),
-                          })
+                          setNuevoProducto(
+                            {
+                              ...nuevoProducto,
+                              category:
+                                alternarCategoria(
+                                  nuevoProducto.category,
+                                  categoria
+                                ),
+                            }
+                          )
                         }
                       />
 
-                      {categoria}
+                      {
+                        categoria
+                      }
                     </label>
                   )
                 )}
               </div>
             </div>
 
-            {/* IMÁGENES GENERALES */}
-
-            <div style={{ marginTop: "20px" }}>
-              <label style={labelStyle}>
+            <div
+              style={{
+                marginTop:
+                  "20px",
+              }}
+            >
+              <label
+                style={labelStyle}
+              >
                 Imágenes generales
               </label>
 
@@ -1960,7 +3276,9 @@ function Admin() {
                 onChange={(e) =>
                   setImagenesSeleccionadas(
                     Array.from(
-                      e.target.files || []
+                      e.target
+                        .files ||
+                        []
                     )
                   )
                 }
@@ -1971,36 +3289,44 @@ function Admin() {
                 0 && (
                 <p
                   style={{
-                    fontSize: "13px",
-                    color: "#666",
+                    fontSize:
+                      "13px",
+                    color:
+                      "#666",
                   }}
                 >
                   {
                     imagenesSeleccionadas.length
                   }{" "}
-                  imagen(es) seleccionada(s)
+                  imagen(es)
+                  seleccionada(s)
                 </p>
               )}
             </div>
 
-            {/* TALLES */}
-
             <div
               style={{
-                marginTop: "25px",
-                paddingTop: "20px",
+                marginTop:
+                  "25px",
+                paddingTop:
+                  "20px",
                 borderTop:
                   "1px solid #e5e5e5",
               }}
             >
               <label
                 style={{
-                  display: "flex",
-                  alignItems: "center",
+                  display:
+                    "flex",
+                  alignItems:
+                    "center",
                   gap: "8px",
-                  cursor: "pointer",
-                  fontWeight: 600,
-                  color: "#263d2d",
+                  cursor:
+                    "pointer",
+                  fontWeight:
+                    600,
+                  color:
+                    "#263d2d",
                 }}
               >
                 <input
@@ -2009,11 +3335,14 @@ function Admin() {
                     nuevoProducto.tiene_talle
                   }
                   onChange={(e) =>
-                    setNuevoProducto({
-                      ...nuevoProducto,
-                      tiene_talle:
-                        e.target.checked,
-                    })
+                    setNuevoProducto(
+                      {
+                        ...nuevoProducto,
+                        tiene_talle:
+                          e.target
+                            .checked,
+                      }
+                    )
                   }
                 />
 
@@ -2024,16 +3353,21 @@ function Admin() {
             {nuevoProducto.tiene_talle && (
               <div
                 style={{
-                  marginTop: "20px",
-                  padding: "15px",
-                  borderRadius: "10px",
-                  background: "#f8f8f4",
+                  marginTop:
+                    "20px",
+                  padding:
+                    "15px",
+                  borderRadius:
+                    "10px",
+                  background:
+                    "#f8f8f4",
                 }}
               >
                 <h3
                   style={{
                     marginTop: 0,
-                    color: "#263d2d",
+                    color:
+                      "#263d2d",
                   }}
                 >
                   Talles y variantes
@@ -2041,27 +3375,37 @@ function Admin() {
 
                 <div
                   style={{
-                    display: "flex",
+                    display:
+                      "flex",
                     gap: "8px",
-                    marginBottom: "20px",
-                    flexWrap: "wrap",
+                    marginBottom:
+                      "20px",
+                    flexWrap:
+                      "wrap",
                   }}
                 >
                   <input
-                    value={nuevoTalle}
+                    value={
+                      nuevoTalle
+                    }
                     onChange={(e) =>
                       setNuevoTalle(
-                        e.target.value
+                        e.target
+                          .value
                       )
                     }
                     placeholder="Ej: S, M, L"
                     style={{
                       ...inputStyle,
                       flex: 1,
-                      minWidth: "180px",
+                      minWidth:
+                        "180px",
                     }}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter") {
+                      if (
+                        e.key ===
+                        "Enter"
+                      ) {
                         e.preventDefault();
                         agregarTalleNuevo();
                       }
@@ -2074,8 +3418,10 @@ function Admin() {
                     }
                     style={{
                       ...buttonStyle,
-                      background: "#263d2d",
-                      color: "#fff",
+                      background:
+                        "#263d2d",
+                      color:
+                        "#fff",
                     }}
                   >
                     + Agregar talle
@@ -2085,37 +3431,49 @@ function Admin() {
                 {nuevoProducto.talles.map(
                   (talle) => {
                     const colores =
-                      coloresPorTalle[talle] || [];
+                      coloresPorTalle[
+                        talle
+                      ] || [];
 
                     return (
                       <div
                         key={talle}
                         style={{
-                          background: "#fff",
-                          borderRadius: "10px",
-                          padding: "15px",
-                          marginBottom: "15px",
+                          background:
+                            "#fff",
+                          borderRadius:
+                            "10px",
+                          padding:
+                            "15px",
+                          marginBottom:
+                            "15px",
                           border:
                             "1px solid #e1e1e1",
                         }}
                       >
                         <div
                           style={{
-                            display: "flex",
+                            display:
+                              "flex",
                             justifyContent:
                               "space-between",
-                            alignItems: "center",
+                            alignItems:
+                              "center",
                             gap: "10px",
-                            marginBottom: "12px",
+                            marginBottom:
+                              "12px",
                           }}
                         >
                           <strong
                             style={{
-                              color: "#263d2d",
-                              fontSize: "16px",
+                              color:
+                                "#263d2d",
+                              fontSize:
+                                "16px",
                             }}
                           >
-                            Talle: {talle}
+                            Talle:{" "}
+                            {talle}
                           </strong>
 
                           <button
@@ -2128,7 +3486,8 @@ function Admin() {
                               ...buttonStyle,
                               background:
                                 "#f1dede",
-                              color: "#9b3333",
+                              color:
+                                "#9b3333",
                               padding:
                                 "7px 10px",
                             }}
@@ -2139,10 +3498,13 @@ function Admin() {
 
                         <div
                           style={{
-                            display: "flex",
+                            display:
+                              "flex",
                             gap: "8px",
-                            flexWrap: "wrap",
-                            marginBottom: "15px",
+                            flexWrap:
+                              "wrap",
+                            marginBottom:
+                              "15px",
                           }}
                         >
                           <input
@@ -2162,7 +3524,8 @@ function Admin() {
                                 talle
                               );
                               setNuevoColor(
-                                e.target.value
+                                e.target
+                                  .value
                               );
                             }}
                             placeholder="Ej: Negro, Rojo..."
@@ -2184,7 +3547,8 @@ function Admin() {
                               ...buttonStyle,
                               background:
                                 "#e5eadf",
-                              color: "#263d2d",
+                              color:
+                                "#263d2d",
                             }}
                           >
                             + Agregar color
@@ -2194,19 +3558,34 @@ function Admin() {
                         {colores.map(
                           (color) => {
                             const clave =
-                              `${talle}__${color}`;
+                              clavePrecioNuevo(
+                                talle,
+                                color
+                              );
 
-                    const fotos = fotosPorColor[clave] || [];
+                            const fotos =
+                              fotosPorColor[
+                                clave
+                              ] || [];
+
+                            const precioActual =
+                              preciosPorColor[
+                                clave
+                              ] ??
+                              nuevoProducto.price;
 
                             return (
                               <div
-                                key={clave}
+                                key={
+                                  clave
+                                }
                                 style={{
                                   border:
                                     "1px solid #ddd",
                                   borderRadius:
                                     "8px",
-                                  padding: "12px",
+                                  padding:
+                                    "12px",
                                   marginTop:
                                     "10px",
                                   background:
@@ -2219,7 +3598,8 @@ function Admin() {
                                       "#263d2d",
                                   }}
                                 >
-                                  🎨 {color}
+                                  🎨{" "}
+                                  {color}
                                 </strong>
 
                                 <div
@@ -2235,28 +3615,35 @@ function Admin() {
                                         "13px",
                                     }}
                                   >
-                                    Precio de esta
-                                    combinación
+                                    Precio de esta combinación
                                   </label>
 
                                   <input
                                     type="number"
                                     min="0"
                                     value={
-                                      nuevoProducto.price
+                                      precioActual
                                     }
                                     onChange={(
                                       e
-                                    ) =>
-                                      setNuevoProducto({
-                                        ...nuevoProducto,
-                                        price:
-                                          Number(
-                                            e.target
-                                              .value
-                                          ),
-                                      })
-                                    }
+                                    ) => {
+                                      const precio =
+                                        Number(
+                                          e
+                                            .target
+                                            .value
+                                        );
+
+                                      setPreciosPorColor(
+                                        (
+                                          actuales
+                                        ) => ({
+                                          ...actuales,
+                                          [clave]:
+                                            precio,
+                                        })
+                                      );
+                                    }}
                                     style={{
                                       ...inputStyle,
                                       maxWidth:
@@ -2278,8 +3665,7 @@ function Admin() {
                                         "13px",
                                     }}
                                   >
-                                    Fotos de esta
-                                    combinación
+                                    Fotos de esta combinación
                                   </label>
 
                                   <input
@@ -2293,7 +3679,8 @@ function Admin() {
                                         talle,
                                         color,
                                         Array.from(
-                                          e.target
+                                          e
+                                            .target
                                             .files ||
                                             []
                                         )
@@ -2335,23 +3722,30 @@ function Admin() {
 
             <div
               style={{
-                display: "flex",
+                display:
+                  "flex",
                 justifyContent:
                   "flex-end",
-                marginTop: "20px",
+                marginTop:
+                  "20px",
               }}
             >
               <button
-                onClick={crearProducto}
+                onClick={
+                  crearProducto
+                }
                 disabled={
                   guardando ||
                   subiendoImagen
                 }
                 style={{
                   ...buttonStyle,
-                  background: "#263d2d",
-                  color: "#fff",
-                  padding: "12px 22px",
+                  background:
+                    "#263d2d",
+                  color:
+                    "#fff",
+                  padding:
+                    "12px 22px",
                 }}
               >
                 {guardando
@@ -2361,6 +3755,7 @@ function Admin() {
             </div>
           </div>
         )}
+
         {/* =========================
             LISTA DE PRODUCTOS
         ========================= */}
@@ -2368,23 +3763,34 @@ function Admin() {
         {cargando ? (
           <div
             style={{
-              background: "#fff",
-              borderRadius: "12px",
-              padding: "30px",
-              textAlign: "center",
-              color: "#666",
+              background:
+                "#fff",
+              borderRadius:
+                "12px",
+              padding:
+                "30px",
+              textAlign:
+                "center",
+              color:
+                "#666",
             }}
           >
             Cargando productos...
           </div>
-        ) : productosFiltrados.length === 0 ? (
+        ) : productosFiltrados.length ===
+          0 ? (
           <div
             style={{
-              background: "#fff",
-              borderRadius: "12px",
-              padding: "30px",
-              textAlign: "center",
-              color: "#666",
+              background:
+                "#fff",
+              borderRadius:
+                "12px",
+              padding:
+                "30px",
+              textAlign:
+                "center",
+              color:
+                "#666",
             }}
           >
             No se encontraron productos.
@@ -2392,148 +3798,221 @@ function Admin() {
         ) : (
           <div
             style={{
-              display: "grid",
+              display:
+                "grid",
               gridTemplateColumns:
                 "repeat(auto-fit, minmax(280px, 1fr))",
-              gap: "18px",
+              gap:
+                "18px",
             }}
           >
-            {productosFiltrados.map((producto) => {
-             
-
-              return (
-                <div
-                  key={producto.id}
-                  style={{
-                    background: "#fff",
-                    borderRadius: "14px",
-                    overflow: "hidden",
-                    boxShadow:
-                      "0 4px 15px rgba(0,0,0,0.06)",
-                  }}
-                >
+            {productosFiltrados.map(
+              (producto) => {
+                return (
                   <div
+                    key={
+                      producto.id
+                    }
                     style={{
-                      height: "220px",
-                      background: "#f5f5f5",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      overflow: "hidden",
+                      background:
+                        "#fff",
+                      borderRadius:
+                        "14px",
+                      overflow:
+                        "hidden",
+                      boxShadow:
+                        "0 4px 15px rgba(0,0,0,0.06)",
                     }}
                   >
-                    {producto.image ? (
-                      <img
-                        src={producto.image}
-                        alt={producto.name}
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          objectFit: "cover",
-                        }}
-                      />
-                    ) : (
-                      <span style={{ color: "#999" }}>
-                        Sin imagen
-                      </span>
-                    )}
-                  </div>
-
-                  <div style={{ padding: "15px" }}>
-                    <h3
+                    <div
                       style={{
-                        margin: "0 0 8px",
-                        color: "#263d2d",
+                        height:
+                          "220px",
+                        background:
+                          "#f5f5f5",
+                        display:
+                          "flex",
+                        alignItems:
+                          "center",
+                        justifyContent:
+                          "center",
+                        overflow:
+                          "hidden",
                       }}
                     >
-                      {producto.name}
-                    </h3>
-
-                    <p
-                      style={{
-                        margin: "0 0 5px",
-                        fontWeight: 700,
-                      }}
-                    >
-                      ${producto.price}
-                    </p>
-
-                    <p
-                      style={{
-                        margin: "0 0 10px",
-                        fontSize: "13px",
-                        color: "#666",
-                      }}
-                    >
-                      Stock: {producto.stock}
-                    </p>
-
-                    {producto.category &&
-                      producto.category.length > 0 && (
-                        <div
+                      {producto.image ? (
+                        <img
+                          src={
+                            producto.image
+                          }
+                          alt={
+                            producto.name
+                          }
                           style={{
-                            display: "flex",
-                            gap: "5px",
-                            flexWrap: "wrap",
-                            marginBottom: "12px",
+                            width:
+                              "100%",
+                            height:
+                              "100%",
+                            objectFit:
+                              "cover",
+                          }}
+                        />
+                      ) : (
+                        <span
+                          style={{
+                            color:
+                              "#999",
                           }}
                         >
-                          {producto.category.map(
-                            (categoria) => (
-                              <span
-                                key={categoria}
-                                style={{
-                                  background: "#e5eadf",
-                                  color: "#263d2d",
-                                  padding: "4px 8px",
-                                  borderRadius: "20px",
-                                  fontSize: "11px",
-                                }}
-                              >
-                                {categoria}
-                              </span>
-                            )
-                          )}
-                        </div>
+                          Sin imagen
+                        </span>
                       )}
+                    </div>
 
                     <div
                       style={{
-                        display: "flex",
-                        gap: "8px",
+                        padding:
+                          "15px",
                       }}
                     >
-                      <button
-                        onClick={() =>
-                          abrirEdicion(producto)
-                        }
+                      <h3
                         style={{
-                          ...buttonStyle,
-                          flex: 1,
-                          background: "#263d2d",
-                          color: "#fff",
+                          margin:
+                            "0 0 8px",
+                          color:
+                            "#263d2d",
                         }}
                       >
-                        Editar
-                      </button>
+                        {
+                          producto.name
+                        }
+                      </h3>
 
-                      <button
-                        onClick={() =>
-                          eliminarProducto(producto.id)
-                        }
+                      <p
                         style={{
-                          ...buttonStyle,
-                          background: "#f1dede",
-                          color: "#9b3333",
+                          margin:
+                            "0 0 5px",
+                          fontWeight:
+                            700,
                         }}
                       >
-                        Eliminar
-                      </button>
+                        $
+                        {Number(
+                          producto.price
+                        ).toLocaleString(
+                          "es-AR"
+                        )}
+                      </p>
+
+                      <p
+                        style={{
+                          margin:
+                            "0 0 10px",
+                          fontSize:
+                            "13px",
+                          color:
+                            "#666",
+                        }}
+                      >
+                        Stock:{" "}
+                        {
+                          producto.stock
+                        }
+                      </p>
+
+                      {producto.category &&
+                        producto.category.length >
+                          0 && (
+                          <div
+                            style={{
+                              display:
+                                "flex",
+                              gap:
+                                "5px",
+                              flexWrap:
+                                "wrap",
+                              marginBottom:
+                                "12px",
+                            }}
+                          >
+                            {producto.category.map(
+                              (
+                                categoria
+                              ) => (
+                                <span
+                                  key={
+                                    categoria
+                                  }
+                                  style={{
+                                    background:
+                                      "#e5eadf",
+                                    color:
+                                      "#263d2d",
+                                    padding:
+                                      "4px 8px",
+                                    borderRadius:
+                                      "20px",
+                                    fontSize:
+                                      "11px",
+                                  }}
+                                >
+                                  {
+                                    categoria
+                                  }
+                                </span>
+                              )
+                            )}
+                          </div>
+                        )}
+
+                      <div
+                        style={{
+                          display:
+                            "flex",
+                          gap:
+                            "8px",
+                        }}
+                      >
+                        <button
+                          onClick={() =>
+                            abrirEdicion(
+                              producto
+                            )
+                          }
+                          style={{
+                            ...buttonStyle,
+                            flex: 1,
+                            background:
+                              "#263d2d",
+                            color:
+                              "#fff",
+                          }}
+                        >
+                          Editar
+                        </button>
+
+                        <button
+                          onClick={() =>
+                            eliminarProducto(
+                              producto.id
+                            )
+                          }
+                          style={{
+                            ...buttonStyle,
+                            background:
+                              "#f1dede",
+                            color:
+                              "#9b3333",
+                          }}
+                        >
+                          Eliminar
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              }
+            )}
           </div>
         )}
 
@@ -2544,53 +4023,79 @@ function Admin() {
         {editando && (
           <div
             style={{
-              position: "fixed",
+              position:
+                "fixed",
               inset: 0,
-              zIndex: 9999,
-              background: "rgba(0,0,0,0.55)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "15px",
-              boxSizing: "border-box",
-              overflowY: "auto",
+              zIndex:
+                9999,
+              background:
+                "rgba(0,0,0,0.55)",
+              display:
+                "flex",
+              alignItems:
+                "center",
+              justifyContent:
+                "center",
+              padding:
+                "15px",
+              boxSizing:
+                "border-box",
+              overflowY:
+                "auto",
             }}
           >
             <div
               style={{
-                width: "100%",
-                maxWidth: "800px",
-                maxHeight: "95vh",
-                overflowY: "auto",
-                background: "#fff",
-                borderRadius: "14px",
-                padding: "20px",
-                boxSizing: "border-box",
+                width:
+                  "100%",
+                maxWidth:
+                  "800px",
+                maxHeight:
+                  "95vh",
+                overflowY:
+                  "auto",
+                background:
+                  "#fff",
+                borderRadius:
+                  "14px",
+                padding:
+                  "20px",
+                boxSizing:
+                  "border-box",
               }}
             >
               <div
                 style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: "20px",
+                  display:
+                    "flex",
+                  justifyContent:
+                    "space-between",
+                  alignItems:
+                    "center",
+                  marginBottom:
+                    "20px",
                 }}
               >
                 <h2
                   style={{
                     margin: 0,
-                    color: "#263d2d",
+                    color:
+                      "#263d2d",
                   }}
                 >
                   Editar producto
                 </h2>
 
                 <button
-                  onClick={cancelarEdicion}
+                  onClick={
+                    cancelarEdicion
+                  }
                   style={{
                     ...buttonStyle,
-                    background: "#eee",
-                    color: "#333",
+                    background:
+                      "#eee",
+                    color:
+                      "#333",
                   }}
                 >
                   ✕
@@ -2601,135 +4106,225 @@ function Admin() {
 
               <div
                 style={{
-                  display: "grid",
+                  display:
+                    "grid",
                   gridTemplateColumns:
                     "repeat(auto-fit, minmax(220px, 1fr))",
-                  gap: "15px",
+                  gap:
+                    "15px",
                 }}
               >
                 <div>
-                  <label style={labelStyle}>
+                  <label
+                    style={
+                      labelStyle
+                    }
+                  >
                     Nombre
                   </label>
 
                   <input
-                    value={editando.name}
-                    onChange={(e) =>
-                      setEditando({
-                        ...editando,
-                        name: e.target.value,
-                      })
+                    value={
+                      editando.name
                     }
-                    style={inputStyle}
+                    onChange={(
+                      e
+                    ) =>
+                      setEditando(
+                        {
+                          ...editando,
+                          name:
+                            e.target
+                              .value,
+                        }
+                      )
+                    }
+                    style={
+                      inputStyle
+                    }
                   />
                 </div>
 
                 <div>
-                  <label style={labelStyle}>
+                  <label
+                    style={
+                      labelStyle
+                    }
+                  >
                     Precio general
                   </label>
 
                   <input
                     type="number"
                     min="0"
-                    value={editando.price}
-                    onChange={(e) =>
-                      setEditando({
-                        ...editando,
-                        price: Number(
-                          e.target.value
-                        ),
-                      })
+                    value={
+                      editando.price
                     }
-                    style={inputStyle}
+                    onChange={(
+                      e
+                    ) =>
+                      setEditando(
+                        {
+                          ...editando,
+                          price:
+                            Number(
+                              e.target
+                                .value
+                            ),
+                        }
+                      )
+                    }
+                    style={
+                      inputStyle
+                    }
                   />
                 </div>
 
                 <div>
-                  <label style={labelStyle}>
+                  <label
+                    style={
+                      labelStyle
+                    }
+                  >
                     Stock
                   </label>
 
                   <input
                     type="number"
                     min="0"
-                    value={editando.stock}
-                    onChange={(e) =>
-                      setEditando({
-                        ...editando,
-                        stock: Number(
-                          e.target.value
-                        ),
-                      })
+                    value={
+                      editando.stock
                     }
-                    style={inputStyle}
+                    onChange={(
+                      e
+                    ) =>
+                      setEditando(
+                        {
+                          ...editando,
+                          stock:
+                            Number(
+                              e.target
+                                .value
+                            ),
+                        }
+                      )
+                    }
+                    style={
+                      inputStyle
+                    }
                   />
                 </div>
               </div>
 
-              <div style={{ marginTop: "15px" }}>
-                <label style={labelStyle}>
+              <div
+                style={{
+                  marginTop:
+                    "15px",
+                }}
+              >
+                <label
+                  style={
+                    labelStyle
+                  }
+                >
                   Descripción
                 </label>
 
                 <textarea
-                  value={editando.description || ""}
-                  onChange={(e) =>
-                    setEditando({
-                      ...editando,
-                      description: e.target.value,
-                    })
+                  value={
+                    editando.description ||
+                    ""
+                  }
+                  onChange={(
+                    e
+                  ) =>
+                    setEditando(
+                      {
+                        ...editando,
+                        description:
+                          e.target
+                            .value,
+                      }
+                    )
                   }
                   rows={4}
                   style={{
                     ...inputStyle,
-                    resize: "vertical",
+                    resize:
+                      "vertical",
                   }}
                 />
               </div>
 
               {/* CATEGORÍAS */}
 
-              <div style={{ marginTop: "20px" }}>
-                <label style={labelStyle}>
+              <div
+                style={{
+                  marginTop:
+                    "20px",
+                }}
+              >
+                <label
+                  style={
+                    labelStyle
+                  }
+                >
                   Categorías
                 </label>
 
                 <div
                   style={{
-                    display: "flex",
-                    gap: "15px",
-                    flexWrap: "wrap",
+                    display:
+                      "flex",
+                    gap:
+                      "15px",
+                    flexWrap:
+                      "wrap",
                   }}
                 >
                   {categoriasDisponibles.map(
-                    (categoria) => (
+                    (
+                      categoria
+                    ) => (
                       <label
-                        key={categoria}
+                        key={
+                          categoria
+                        }
                         style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "6px",
+                          display:
+                            "flex",
+                          alignItems:
+                            "center",
+                          gap:
+                            "6px",
                         }}
                       >
                         <input
                           type="checkbox"
                           checked={(
-                            editando.category || []
-                          ).includes(categoria)}
+                            editando.category ||
+                            []
+                          ).includes(
+                            categoria
+                          )}
                           onChange={() =>
-                            setEditando({
-                              ...editando,
-                              category:
-                                alternarCategoria(
-                                  editando.category || [],
-                                  categoria
-                                ),
-                            })
+                            setEditando(
+                              {
+                                ...editando,
+                                category:
+                                  alternarCategoria(
+                                    editando.category ||
+                                      [],
+                                    categoria
+                                  ),
+                              }
+                            )
                           }
                         />
 
-                        {categoria}
+                        {
+                          categoria
+                        }
                       </label>
                     )
                   )}
@@ -2738,82 +4333,126 @@ function Admin() {
 
               {/* IMÁGENES GENERALES */}
 
-              <div style={{ marginTop: "20px" }}>
-                <label style={labelStyle}>
+              <div
+                style={{
+                  marginTop:
+                    "20px",
+                }}
+              >
+                <label
+                  style={
+                    labelStyle
+                  }
+                >
                   Imágenes actuales
                 </label>
 
                 <div
                   style={{
-                    display: "flex",
-                    gap: "10px",
-                    flexWrap: "wrap",
+                    display:
+                      "flex",
+                    gap:
+                      "10px",
+                    flexWrap:
+                      "wrap",
                   }}
                 >
                   {(
-                    imagenesProducto[editando.id] || []
-                  ).map((imagen) => (
-                    <div
-                      key={imagen.id}
-                      style={{
-                        width: "100px",
-                        position: "relative",
-                      }}
-                    >
-                      <img
-                        src={imagen.image_url}
-                        alt=""
-                        style={{
-                          width: "100px",
-                          height: "100px",
-                          objectFit: "cover",
-                          borderRadius: "8px",
-                          border:
-                            editando.image ===
-                            imagen.image_url
-                              ? "3px solid #263d2d"
-                              : "1px solid #ddd",
-                        }}
-                      />
-
-                      <button
-                        onClick={() =>
-                          eliminarImagen(imagen)
+                    imagenesProducto[
+                      editando.id
+                    ] || []
+                  ).map(
+                    (imagen) => (
+                      <div
+                        key={
+                          imagen.id
                         }
                         style={{
-                          position: "absolute",
-                          top: "4px",
-                          right: "4px",
-                          width: "24px",
-                          height: "24px",
-                          border: "none",
-                          borderRadius: "50%",
-                          background: "#fff",
-                          color: "#a00",
-                          cursor: "pointer",
-                          fontWeight: 700,
+                          width:
+                            "100px",
+                          position:
+                            "relative",
                         }}
                       >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+                        <img
+                          src={
+                            imagen.image_url
+                          }
+                          alt=""
+                          style={{
+                            width:
+                              "100px",
+                            height:
+                              "100px",
+                            objectFit:
+                              "cover",
+                            borderRadius:
+                              "8px",
+                            border:
+                              editando.image ===
+                              imagen.image_url
+                                ? "3px solid #263d2d"
+                                : "1px solid #ddd",
+                          }}
+                        />
+
+                        <button
+                          onClick={() =>
+                            eliminarImagen(
+                              imagen
+                            )
+                          }
+                          style={{
+                            position:
+                              "absolute",
+                            top:
+                              "4px",
+                            right:
+                              "4px",
+                            width:
+                              "24px",
+                            height:
+                              "24px",
+                            border:
+                              "none",
+                            borderRadius:
+                              "50%",
+                            background:
+                              "#fff",
+                            color:
+                              "#a00",
+                            cursor:
+                              "pointer",
+                            fontWeight:
+                              700,
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )
+                  )}
                 </div>
 
                 <input
                   type="file"
                   accept="image/*"
                   multiple
-                  onChange={(e) =>
+                  onChange={(
+                    e
+                  ) =>
                     setImagenesSeleccionadas(
                       Array.from(
-                        e.target.files || []
+                        e.target
+                          .files ||
+                          []
                       )
                     )
                   }
                   style={{
                     ...inputStyle,
-                    marginTop: "12px",
+                    marginTop:
+                      "12px",
                   }}
                 />
 
@@ -2821,12 +4460,17 @@ function Admin() {
                   0 && (
                   <p
                     style={{
-                      fontSize: "12px",
-                      color: "#666",
+                      fontSize:
+                        "12px",
+                      color:
+                        "#666",
                     }}
                   >
-                    {imagenesSeleccionadas.length}{" "}
-                    imagen(es) nueva(s)
+                    {
+                      imagenesSeleccionadas.length
+                    }{" "}
+                    imagen(es)
+                    nueva(s)
                     seleccionada(s).
                   </p>
                 )}
@@ -2836,30 +4480,44 @@ function Admin() {
 
               <div
                 style={{
-                  marginTop: "25px",
-                  paddingTop: "20px",
+                  marginTop:
+                    "25px",
+                  paddingTop:
+                    "20px",
                   borderTop:
                     "1px solid #e5e5e5",
                 }}
               >
                 <label
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    fontWeight: 600,
-                    color: "#263d2d",
+                    display:
+                      "flex",
+                    alignItems:
+                      "center",
+                    gap:
+                      "8px",
+                    fontWeight:
+                      600,
+                    color:
+                      "#263d2d",
                   }}
                 >
                   <input
                     type="checkbox"
-                    checked={editando.tiene_talle}
-                    onChange={(e) =>
-                      setEditando({
-                        ...editando,
-                        tiene_talle:
-                          e.target.checked,
-                      })
+                    checked={
+                      editando.tiene_talle
+                    }
+                    onChange={(
+                      e
+                    ) =>
+                      setEditando(
+                        {
+                          ...editando,
+                          tiene_talle:
+                            e.target
+                              .checked,
+                        }
+                      )
                     }
                   />
 
@@ -2872,16 +4530,21 @@ function Admin() {
               {editando.tiene_talle && (
                 <div
                   style={{
-                    marginTop: "20px",
-                    background: "#f8f8f4",
-                    padding: "15px",
-                    borderRadius: "10px",
+                    marginTop:
+                      "20px",
+                    background:
+                      "#f8f8f4",
+                    padding:
+                      "15px",
+                    borderRadius:
+                      "10px",
                   }}
                 >
                   <h3
                     style={{
                       marginTop: 0,
-                      color: "#263d2d",
+                      color:
+                        "#263d2d",
                     }}
                   >
                     Talles y variantes
@@ -2891,24 +4554,34 @@ function Admin() {
 
                   <div
                     style={{
-                      display: "flex",
-                      gap: "8px",
-                      flexWrap: "wrap",
-                      marginBottom: "20px",
+                      display:
+                        "flex",
+                      gap:
+                        "8px",
+                      flexWrap:
+                        "wrap",
+                      marginBottom:
+                        "20px",
                     }}
                   >
                     <input
-                      value={nuevoTalleEditando}
-                      onChange={(e) =>
+                      value={
+                        nuevoTalleEditando
+                      }
+                      onChange={(
+                        e
+                      ) =>
                         setNuevoTalleEditando(
-                          e.target.value
+                          e.target
+                            .value
                         )
                       }
                       placeholder="Ej: S, M, L"
                       style={{
                         ...inputStyle,
                         flex: 1,
-                        minWidth: "180px",
+                        minWidth:
+                          "180px",
                       }}
                     />
 
@@ -2918,8 +4591,10 @@ function Admin() {
                       }
                       style={{
                         ...buttonStyle,
-                        background: "#263d2d",
-                        color: "#fff",
+                        background:
+                          "#263d2d",
+                        color:
+                          "#fff",
                       }}
                     >
                       + Agregar talle
@@ -2933,36 +4608,50 @@ function Admin() {
                           (v) =>
                             v.producto_id ===
                               editando.id &&
-                            v.talle === talle
+                            v.talle ===
+                              talle
                         );
 
                       return (
                         <div
-                          key={talle}
+                          key={
+                            talle
+                          }
                           style={{
-                            background: "#fff",
+                            background:
+                              "#fff",
                             border:
                               "1px solid #ddd",
-                            borderRadius: "10px",
-                            padding: "15px",
-                            marginBottom: "15px",
+                            borderRadius:
+                              "10px",
+                            padding:
+                              "15px",
+                            marginBottom:
+                              "15px",
                           }}
                         >
                           <div
                             style={{
-                              display: "flex",
+                              display:
+                                "flex",
                               justifyContent:
                                 "space-between",
-                              alignItems: "center",
-                              marginBottom: "12px",
+                              alignItems:
+                                "center",
+                              marginBottom:
+                                "12px",
                             }}
                           >
                             <strong
                               style={{
-                                color: "#263d2d",
+                                color:
+                                  "#263d2d",
                               }}
                             >
-                              Talle: {talle}
+                              Talle:{" "}
+                              {
+                                talle
+                              }
                             </strong>
 
                             <button
@@ -2975,7 +4664,8 @@ function Admin() {
                                 ...buttonStyle,
                                 background:
                                   "#f1dede",
-                                color: "#9b3333",
+                                color:
+                                  "#9b3333",
                                 padding:
                                   "7px 10px",
                               }}
@@ -2988,10 +4678,14 @@ function Admin() {
 
                           <div
                             style={{
-                              display: "flex",
-                              gap: "8px",
-                              flexWrap: "wrap",
-                              marginBottom: "12px",
+                              display:
+                                "flex",
+                              gap:
+                                "8px",
+                              flexWrap:
+                                "wrap",
+                              marginBottom:
+                                "12px",
                             }}
                           >
                             <input
@@ -3006,12 +4700,16 @@ function Admin() {
                                   talle
                                 )
                               }
-                              onChange={(e) => {
+                              onChange={(
+                                e
+                              ) => {
                                 setTalleParaColor(
                                   talle
                                 );
                                 setNuevoColor(
-                                  e.target.value
+                                  e
+                                    .target
+                                    .value
                                 );
                               }}
                               placeholder="Ej: Negro, Rojo..."
@@ -3033,7 +4731,8 @@ function Admin() {
                                 ...buttonStyle,
                                 background:
                                   "#e5eadf",
-                                color: "#263d2d",
+                                color:
+                                  "#263d2d",
                               }}
                             >
                               + Agregar color
@@ -3043,7 +4742,9 @@ function Admin() {
                           {/* COLORES */}
 
                           {variantesDelTalle.map(
-                            (variante) => {
+                            (
+                              variante
+                            ) => {
                               const fotos =
                                 variante.id
                                   ? imagenesVariantes[
@@ -3072,7 +4773,8 @@ function Admin() {
                                       "1px solid #ddd",
                                     borderRadius:
                                       "8px",
-                                    padding: "12px",
+                                    padding:
+                                      "12px",
                                     marginTop:
                                       "10px",
                                     background:
@@ -3081,12 +4783,14 @@ function Admin() {
                                 >
                                   <div
                                     style={{
-                                      display: "flex",
+                                      display:
+                                        "flex",
                                       justifyContent:
                                         "space-between",
                                       alignItems:
                                         "center",
-                                      gap: "10px",
+                                      gap:
+                                        "10px",
                                     }}
                                   >
                                     <strong
@@ -3136,8 +4840,7 @@ function Admin() {
                                           "13px",
                                       }}
                                     >
-                                      Precio de esta
-                                      combinación
+                                      Precio de esta combinación
                                     </label>
 
                                     <input
@@ -3146,16 +4849,24 @@ function Admin() {
                                       value={
                                         variante.precio
                                       }
-                                      onChange={(e) => {
+                                      onChange={(
+                                        e
+                                      ) => {
                                         const precio =
                                           Number(
-                                            e.target.value
+                                            e
+                                              .target
+                                              .value
                                           );
 
                                         setVariantes(
-                                          (actuales) =>
+                                          (
+                                            actuales
+                                          ) =>
                                             actuales.map(
-                                              (v) =>
+                                              (
+                                                v
+                                              ) =>
                                                 (
                                                   v.id &&
                                                   variante.id &&
@@ -3204,13 +4915,16 @@ function Admin() {
                                         style={{
                                           display:
                                             "flex",
-                                          gap: "8px",
+                                          gap:
+                                            "8px",
                                           flexWrap:
                                             "wrap",
                                         }}
                                       >
                                         {fotos.map(
-                                          (foto) => (
+                                          (
+                                            foto
+                                          ) => (
                                             <img
                                               key={
                                                 foto.id
@@ -3251,19 +4965,21 @@ function Admin() {
                                           "13px",
                                       }}
                                     >
-                                      Agregar fotos para
-                                      esta combinación
+                                      Agregar fotos para esta combinación
                                     </label>
 
                                     <input
                                       type="file"
                                       accept="image/*"
                                       multiple
-                                      onChange={(e) =>
+                                      onChange={(
+                                        e
+                                      ) =>
                                         seleccionarFotosVariante(
                                           variante,
                                           Array.from(
-                                            e.target
+                                            e
+                                              .target
                                               .files ||
                                               []
                                           )
@@ -3304,12 +5020,13 @@ function Admin() {
                             0 && (
                             <p
                               style={{
-                                color: "#777",
-                                fontSize: "13px",
+                                color:
+                                  "#777",
+                                fontSize:
+                                  "13px",
                               }}
                             >
-                              No hay colores para
-                              este talle todavía.
+                              No hay colores para este talle todavía.
                             </p>
                           )}
                         </div>
@@ -3323,38 +5040,54 @@ function Admin() {
 
               <div
                 style={{
-                  display: "flex",
-                  justifyContent: "flex-end",
-                  gap: "10px",
-                  marginTop: "25px",
-                  paddingTop: "20px",
+                  display:
+                    "flex",
+                  justifyContent:
+                    "flex-end",
+                  gap:
+                    "10px",
+                  marginTop:
+                    "25px",
+                  paddingTop:
+                    "20px",
                   borderTop:
                     "1px solid #e5e5e5",
                 }}
               >
                 <button
-                  onClick={cancelarEdicion}
-                  disabled={guardando}
+                  onClick={
+                    cancelarEdicion
+                  }
+                  disabled={
+                    guardando
+                  }
                   style={{
                     ...buttonStyle,
-                    background: "#eee",
-                    color: "#333",
+                    background:
+                      "#eee",
+                    color:
+                      "#333",
                   }}
                 >
                   Cancelar
                 </button>
 
                 <button
-                  onClick={guardarCambios}
+                  onClick={
+                    guardarCambios
+                  }
                   disabled={
                     guardando ||
                     subiendoImagen
                   }
                   style={{
                     ...buttonStyle,
-                    background: "#263d2d",
-                    color: "#fff",
-                    padding: "12px 22px",
+                    background:
+                      "#263d2d",
+                    color:
+                      "#fff",
+                    padding:
+                      "12px 22px",
                   }}
                 >
                   {guardando

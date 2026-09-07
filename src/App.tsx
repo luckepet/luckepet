@@ -5,7 +5,7 @@ import Navbar from './components/navbar'
 import Footer from './components/footer'
 
 import { useEffect, useState } from 'react'
-import type { TouchEvent } from 'react'
+import type { TouchEvent, FormEvent } from 'react'
 
 import { supabase } from './lib/supabase'
 
@@ -17,6 +17,7 @@ type Producto = {
   image: string | null
   category: string[] | string | null
   stock: number
+  stock_reservado: number
   tiene_talle: boolean
   talles: string[]
 }
@@ -36,16 +37,29 @@ type Imagen = {
   orden: number
 }
 
+type ItemCarrito = Producto & {
+  cantidad: number
+  talle: string | null
+  color: string | null
+  variante_id: number | null
+  price: number
+  image: string | null
+}
+
 function App() {
   const [productos, setProductos] = useState<Producto[]>([])
 
   const [imagenesPortada, setImagenesPortada] =
     useState<Record<number, string>>({})
 
-  const [carrito, setCarrito] = useState<any[]>([])
-  const [mostrarCarrito, setMostrarCarrito] = useState(false)
+  const [carrito, setCarrito] =
+    useState<ItemCarrito[]>([])
 
-  const [busqueda, setBusqueda] = useState('')
+  const [mostrarCarrito, setMostrarCarrito] =
+    useState(false)
+
+  const [busqueda, setBusqueda] =
+    useState('')
 
   const [categoriaSeleccionada, setCategoriaSeleccionada] =
     useState('Todos')
@@ -53,10 +67,14 @@ function App() {
   const [productoSeleccionado, setProductoSeleccionado] =
     useState<Producto | null>(null)
 
-  const [talleSeleccionado, setTalleSeleccionado] = useState('')
-  const [colorSeleccionado, setColorSeleccionado] = useState('')
+  const [talleSeleccionado, setTalleSeleccionado] =
+    useState('')
 
-  const [variantes, setVariantes] = useState<Variante[]>([])
+  const [colorSeleccionado, setColorSeleccionado] =
+    useState('')
+
+  const [variantes, setVariantes] =
+    useState<Variante[]>([])
 
   const [imagenesProducto, setImagenesProducto] =
     useState<string[]>([])
@@ -67,9 +85,11 @@ function App() {
   const [imagenesGenerales, setImagenesGenerales] =
     useState<string[]>([])
 
-  const [fotoActual, setFotoActual] = useState(0)
+  const [fotoActual, setFotoActual] =
+    useState(0)
 
-  const [cargandoDetalle, setCargandoDetalle] = useState(false)
+  const [cargandoDetalle, setCargandoDetalle] =
+    useState(false)
 
   const [imagenAmpliada, setImagenAmpliada] =
     useState(false)
@@ -78,10 +98,38 @@ function App() {
     useState<number | null>(null)
 
   // =====================================================
+  // CHECKOUT
+  // =====================================================
+
+  const [mostrarCheckout, setMostrarCheckout] =
+    useState(false)
+
+  const [enviandoPedido, setEnviandoPedido] =
+    useState(false)
+
+  const [pedidoCreado, setPedidoCreado] =
+    useState(false)
+
+  const [errorPedido, setErrorPedido] =
+    useState('')
+
+  const [datosCliente, setDatosCliente] =
+    useState({
+      nombre: '',
+      apellido: '',
+      direccion: '',
+      codigo_postal: '',
+      telefono: '',
+      email: ''
+    })
+
+  // =====================================================
   // NORMALIZAR URL
   // =====================================================
 
   const normalizarUrl = (valor: string) => {
+    if (!valor) return ''
+
     try {
       const url = new URL(valor)
 
@@ -97,6 +145,8 @@ function App() {
         .split('?')[0]
         .split('#')[0]
         .trim()
+        .replace(/^\/+/, '')
+        .replace(/\/+$/, '')
         .toLowerCase()
     }
   }
@@ -125,6 +175,18 @@ function App() {
     })
 
     return resultado
+  }
+
+  // =====================================================
+  // STOCK DISPONIBLE
+  // =====================================================
+
+  const stockDisponible = (producto: Producto) => {
+    return Math.max(
+      0,
+      Number(producto.stock || 0) -
+        Number(producto.stock_reservado || 0)
+    )
   }
 
   // =====================================================
@@ -158,19 +220,14 @@ function App() {
 
     const manejarAtras = () => {
       if (productoSeleccionado) {
-        setProductoSeleccionado(null)
-        setTalleSeleccionado('')
-        setColorSeleccionado('')
-        setVariantes([])
-        setImagenesVariantes({})
-        setImagenesProducto([])
-        setImagenesGenerales([])
-        setFotoActual(0)
-        setImagenAmpliada(false)
+        cerrarProductoSinHistorial()
       }
     }
 
-    window.addEventListener('popstate', manejarAtras)
+    window.addEventListener(
+      'popstate',
+      manejarAtras
+    )
 
     return () => {
       window.removeEventListener(
@@ -181,11 +238,35 @@ function App() {
   }, [productoSeleccionado])
 
   // =====================================================
+  // LIMPIAR PRODUCTO SELECCIONADO
+  // =====================================================
+
+  const limpiarProductoSeleccionado = () => {
+    setProductoSeleccionado(null)
+    setTalleSeleccionado('')
+    setColorSeleccionado('')
+    setVariantes([])
+    setImagenesVariantes({})
+    setImagenesProducto([])
+    setImagenesGenerales([])
+    setFotoActual(0)
+    setImagenAmpliada(false)
+    setCargandoDetalle(false)
+  }
+
+  const cerrarProductoSinHistorial = () => {
+    limpiarProductoSeleccionado()
+  }
+
+  // =====================================================
   // PRODUCTOS
   // =====================================================
 
   async function cargarProductos() {
-    const { data, error } = await supabase
+    const {
+      data,
+      error
+    } = await supabase
       .from('Productos')
       .select('*')
       .order('id', {
@@ -200,7 +281,9 @@ function App() {
       return
     }
 
-    setProductos((data || []) as Producto[])
+    setProductos(
+      (data || []) as Producto[]
+    )
   }
 
   // =====================================================
@@ -210,9 +293,14 @@ function App() {
   async function cargarFotosPortada() {
     const mapa: Record<number, string> = {}
 
-    const { data, error } = await supabase
+    const {
+      data,
+      error
+    } = await supabase
       .from('ProductoImagenes')
-      .select('producto_id, image_url, orden')
+      .select(
+        'producto_id, image_url, orden'
+      )
       .order('orden', {
         ascending: true
       })
@@ -223,16 +311,18 @@ function App() {
         error
       )
     } else {
-      ;(data || []).forEach((imagen: Imagen) => {
-        if (
-          imagen.producto_id &&
-          imagen.image_url?.trim() &&
-          !mapa[imagen.producto_id]
-        ) {
-          mapa[imagen.producto_id] =
-            imagen.image_url.trim()
+      ;(data || []).forEach(
+        (imagen: Imagen) => {
+          if (
+            imagen.producto_id &&
+            imagen.image_url?.trim() &&
+            !mapa[imagen.producto_id]
+          ) {
+            mapa[imagen.producto_id] =
+              imagen.image_url.trim()
+          }
         }
-      })
+      )
     }
 
     productos.forEach(producto => {
@@ -258,7 +348,9 @@ function App() {
     let fotos: string[] = []
 
     if (producto.image?.trim()) {
-      fotos.push(producto.image.trim())
+      fotos.push(
+        producto.image.trim()
+      )
     }
 
     const {
@@ -266,8 +358,13 @@ function App() {
       error
     } = await supabase
       .from('ProductoImagenes')
-      .select('image_url, orden')
-      .eq('producto_id', producto.id)
+      .select(
+        'image_url, orden'
+      )
+      .eq(
+        'producto_id',
+        producto.id
+      )
       .order('orden', {
         ascending: true
       })
@@ -278,40 +375,47 @@ function App() {
         error
       )
     } else {
-      ;(data || []).forEach((imagen: Imagen) => {
-        if (imagen.image_url?.trim()) {
-          fotos.push(
-            imagen.image_url.trim()
-          )
+      ;(data || []).forEach(
+        (imagen: Imagen) => {
+          if (
+            imagen.image_url?.trim()
+          ) {
+            fotos.push(
+              imagen.image_url.trim()
+            )
+          }
         }
-      })
+      )
     }
 
     return fotosUnicas(fotos)
   }
 
   // =====================================================
-  // CARGAR TODAS LAS IMÁGENES DEL PRODUCTO
+  // CARGAR TODAS LAS IMÁGENES
   // =====================================================
 
   async function cargarTodasLasImagenesProducto(
     producto: Producto
   ) {
     const fotosGenerales =
-      await cargarImagenesGenerales(producto)
+      await cargarImagenesGenerales(
+        producto
+      )
 
-    setImagenesGenerales(fotosGenerales)
+    setImagenesGenerales(
+      fotosGenerales
+    )
 
-    // IMPORTANTE:
-    // al abrir el producto SIEMPRE empiezan
-    // las imágenes generales.
-    setImagenesProducto(fotosGenerales)
+    setImagenesProducto(
+      fotosGenerales
+    )
 
     setFotoActual(0)
   }
 
   // =====================================================
-  // VARIANTES
+  // CARGAR VARIANTES
   // =====================================================
 
   async function cargarVariantes(
@@ -325,7 +429,10 @@ function App() {
       .select(
         'id, producto_id, talle, color, precio'
       )
-      .eq('producto_id', productoId)
+      .eq(
+        'producto_id',
+        productoId
+      )
       .order('id', {
         ascending: true
       })
@@ -343,34 +450,51 @@ function App() {
     }
 
     const variantesCargadas =
-      (data || []).map(variante => ({
-        ...variante,
-        precio: Number(
-          variante.precio || 0
-        )
-      })) as Variante[]
+      (data || []).map(
+        variante => ({
+          ...variante,
+          talle:
+            variante.talle || '',
+          color:
+            variante.color || '',
+          precio:
+            Number(
+              variante.precio || 0
+            )
+        })
+      ) as Variante[]
 
-    setVariantes(variantesCargadas)
+    setVariantes(
+      variantesCargadas
+    )
 
-    if (variantesCargadas.length === 0) {
+    if (
+      variantesCargadas.length === 0
+    ) {
       setImagenesVariantes({})
       return
     }
 
     const ids =
       variantesCargadas.map(
-        variante => variante.id
+        variante =>
+          variante.id
       )
 
     const {
       data: imagenes,
       error: errorImagenes
     } = await supabase
-      .from('ProductoVarianteImagenes')
+      .from(
+        'ProductoVarianteImagenes'
+      )
       .select(
         'variante_id, image_url, orden'
       )
-      .in('variante_id', ids)
+      .in(
+        'variante_id',
+        ids
+      )
       .order('orden', {
         ascending: true
       })
@@ -386,11 +510,16 @@ function App() {
       return
     }
 
-    const mapa: Record<number, string[]> = {}
+    const mapa: Record<
+      number,
+      string[]
+    > = {}
 
-    variantesCargadas.forEach(variante => {
-      mapa[variante.id] = []
-    })
+    variantesCargadas.forEach(
+      variante => {
+        mapa[variante.id] = []
+      }
+    )
 
     ;(imagenes || []).forEach(
       (imagen: Imagen) => {
@@ -398,27 +527,40 @@ function App() {
           imagen.variante_id &&
           imagen.image_url?.trim()
         ) {
-          if (!mapa[imagen.variante_id]) {
-            mapa[imagen.variante_id] = []
+          if (
+            !mapa[
+              imagen.variante_id
+            ]
+          ) {
+            mapa[
+              imagen.variante_id
+            ] = []
           }
 
-          mapa[imagen.variante_id].push(
+          mapa[
+            imagen.variante_id
+          ].push(
             imagen.image_url.trim()
           )
         }
       }
     )
 
-    Object.keys(mapa).forEach(id => {
-      const varianteId = Number(id)
+    Object.keys(mapa).forEach(
+      id => {
+        const varianteId =
+          Number(id)
 
-      mapa[varianteId] =
-        fotosUnicas(
-          mapa[varianteId]
-        )
-    })
+        mapa[varianteId] =
+          fotosUnicas(
+            mapa[varianteId]
+          )
+      }
+    )
 
-    setImagenesVariantes(mapa)
+    setImagenesVariantes(
+      mapa
+    )
   }
 
   // =====================================================
@@ -437,28 +579,24 @@ function App() {
       window.location.href
     )
 
-    setProductoSeleccionado(producto)
+    setProductoSeleccionado(
+      producto
+    )
 
     setTalleSeleccionado('')
     setColorSeleccionado('')
-
     setVariantes([])
     setImagenesVariantes({})
-
     setImagenesProducto([])
     setImagenesGenerales([])
-
     setFotoActual(0)
     setImagenAmpliada(false)
-
     setCargandoDetalle(true)
 
-    // Primero cargamos imágenes generales
     await cargarTodasLasImagenesProducto(
       producto
     )
 
-    // Después variantes
     await cargarVariantes(
       producto.id
     )
@@ -478,19 +616,7 @@ function App() {
       return
     }
 
-    setProductoSeleccionado(null)
-
-    setTalleSeleccionado('')
-    setColorSeleccionado('')
-
-    setVariantes([])
-    setImagenesVariantes({})
-
-    setImagenesProducto([])
-    setImagenesGenerales([])
-
-    setFotoActual(0)
-    setImagenAmpliada(false)
+    limpiarProductoSeleccionado()
   }
 
   // =====================================================
@@ -500,14 +626,14 @@ function App() {
   const seleccionarTalle = (
     talle: string
   ) => {
-    setTalleSeleccionado(talle)
+    setTalleSeleccionado(
+      talle
+    )
 
-    // Cada vez que cambia el talle,
-    // se limpia el color anterior.
     setColorSeleccionado('')
 
-    // Volvemos a las imágenes generales
-    // hasta que el usuario elija un color.
+    // Al cambiar talle volvemos
+    // a las imágenes generales.
     setImagenesProducto(
       imagenesGenerales
     )
@@ -537,8 +663,9 @@ function App() {
           array
         ) =>
           color &&
-          array.indexOf(color) ===
-            index
+          array.indexOf(
+            color
+          ) === index
       )
 
   // =====================================================
@@ -548,41 +675,42 @@ function App() {
   const seleccionarColor = (
     color: string
   ) => {
-    setColorSeleccionado(color)
+    setColorSeleccionado(
+      color
+    )
 
     setFotoActual(0)
 
-    // BUSCAMOS LA VARIANTE EXACTA
-    // talle + color
-    const variante = variantes.find(
-      item =>
-        item.talle ===
-          talleSeleccionado &&
-        item.color === color
-    )
+    const variante =
+      variantes.find(
+        item =>
+          item.talle ===
+            talleSeleccionado &&
+          item.color === color
+      )
 
     if (!variante) {
       setImagenesProducto(
         imagenesGenerales
       )
+
       return
     }
 
-    // Buscamos las imágenes de ESA variante
     const fotosColor =
       imagenesVariantes[
         variante.id
       ] || []
 
-    if (fotosColor.length > 0) {
+    if (
+      fotosColor.length > 0
+    ) {
       setImagenesProducto(
         fotosUnicas(
           fotosColor
         )
       )
     } else {
-      // Si no tiene imágenes propias,
-      // usamos las generales.
       setImagenesProducto(
         imagenesGenerales
       )
@@ -593,102 +721,162 @@ function App() {
   // VARIANTE EXACTA
   // =====================================================
 
-  const obtenerVarianteSeleccionada = () => {
-    if (
-      !talleSeleccionado ||
-      !colorSeleccionado
-    ) {
-      return null
-    }
+  const obtenerVarianteSeleccionada =
+    () => {
+      if (
+        !talleSeleccionado ||
+        !colorSeleccionado
+      ) {
+        return null
+      }
 
-    return (
-      variantes.find(
-        variante =>
-          variante.talle ===
-            talleSeleccionado &&
-          variante.color ===
-            colorSeleccionado
-      ) || null
-    )
-  }
+      return (
+        variantes.find(
+          variante =>
+            variante.talle ===
+              talleSeleccionado &&
+            variante.color ===
+              colorSeleccionado
+        ) || null
+      )
+    }
 
   // =====================================================
   // PRECIO ACTUAL
   // =====================================================
 
-  const obtenerPrecioActual = () => {
-    if (!productoSeleccionado) {
-      return 0
-    }
-
-    // Producto sin variantes
-    if (variantes.length === 0) {
-      return Number(
-        productoSeleccionado.price || 0
-      )
-    }
-
-    // TALLE + COLOR
-    const varianteExacta =
-      obtenerVarianteSeleccionada()
-
-    if (varianteExacta) {
-      return Number(
-        varianteExacta.precio || 0
-      )
-    }
-
-    // SOLO TALLE
-    if (talleSeleccionado) {
-      const variantesDelTalle =
-        variantes.filter(
-          variante =>
-            variante.talle ===
-            talleSeleccionado
-        )
+  const obtenerPrecioActual =
+    () => {
+      if (
+        !productoSeleccionado
+      ) {
+        return 0
+      }
 
       if (
-        variantesDelTalle.length > 0
+        variantes.length === 0
       ) {
-        const precios =
-          variantesDelTalle
-            .map(
-              variante =>
-                Number(
-                  variante.precio || 0
-                )
-            )
-            .filter(
-              precio =>
-                precio > 0
-            )
+        return Number(
+          productoSeleccionado.price ||
+            0
+        )
+      }
+
+      const varianteExacta =
+        obtenerVarianteSeleccionada()
+
+      if (
+        varianteExacta
+      ) {
+        return Number(
+          varianteExacta.precio ||
+            0
+        )
+      }
+
+      if (
+        talleSeleccionado
+      ) {
+        const variantesDelTalle =
+          variantes.filter(
+            variante =>
+              variante.talle ===
+              talleSeleccionado
+          )
 
         if (
-          precios.length > 0
+          variantesDelTalle.length >
+          0
         ) {
-          // Si hay distintos precios por color,
-          // mostramos el menor hasta elegir color.
-          return Math.min(
-            ...precios
-          )
+          const precios =
+            variantesDelTalle
+              .map(
+                variante =>
+                  Number(
+                    variante.precio ||
+                      0
+                  )
+              )
+              .filter(
+                precio =>
+                  precio > 0
+              )
+
+          if (
+            precios.length > 0
+          ) {
+            return Math.min(
+              ...precios
+            )
+          }
         }
       }
-    }
 
-    return Number(
-      productoSeleccionado.price || 0
-    )
-  }
+      return Number(
+        productoSeleccionado.price ||
+          0
+      )
+    }
 
   // =====================================================
   // CARRITO
   // =====================================================
 
   const agregarAlCarrito = (
-    producto: any
+    producto: ItemCarrito
   ) => {
     setCarrito(
       carritoActual => {
+        // Cantidad que ya hay de ESTE
+        // producto/variante en el carrito.
+        const cantidadActual =
+          carritoActual
+            .filter(
+              item =>
+                item.id ===
+                  producto.id &&
+                item.talle ===
+                  producto.talle &&
+                item.color ===
+                  producto.color &&
+                item.variante_id ===
+                  producto.variante_id
+            )
+            .reduce(
+              (
+                total,
+                item
+              ) =>
+                total +
+                (item.cantidad ||
+                  1),
+              0
+            )
+
+        // Buscamos el producto actual
+        // en el estado de productos.
+        const productoActual =
+          productos.find(
+            item =>
+              item.id ===
+              producto.id
+          )
+
+        // Verificamos el stock disponible.
+        if (productoActual) {
+          const disponible =
+            stockDisponible(
+              productoActual
+            )
+
+          if (
+            cantidadActual >=
+            disponible
+          ) {
+            return carritoActual
+          }
+        }
+
         const existe =
           carritoActual.some(
             item =>
@@ -697,7 +885,9 @@ function App() {
               item.talle ===
                 producto.talle &&
               item.color ===
-                producto.color
+                producto.color &&
+              item.variante_id ===
+                producto.variante_id
           )
 
         if (existe) {
@@ -708,7 +898,9 @@ function App() {
                 item.talle ===
                   producto.talle &&
                 item.color ===
-                  producto.color
+                  producto.color &&
+                item.variante_id ===
+                  producto.variante_id
                 ? {
                     ...item,
                     cantidad:
@@ -730,10 +922,15 @@ function App() {
     )
   }
 
+  // =====================================================
+  // QUITAR DEL CARRITO
+  // =====================================================
+
   const quitarDelCarrito = (
     id: number,
     talle: string | null,
-    color: string | null
+    color: string | null,
+    varianteId: number | null
   ) => {
     setCarrito(
       carritoActual =>
@@ -741,7 +938,9 @@ function App() {
           .map(item =>
             item.id === id &&
             item.talle === talle &&
-            item.color === color
+            item.color === color &&
+            item.variante_id ===
+              varianteId
               ? {
                   ...item,
                   cantidad:
@@ -757,10 +956,15 @@ function App() {
     )
   }
 
+  // =====================================================
+  // ELIMINAR DEL CARRITO
+  // =====================================================
+
   const eliminarDelCarrito = (
     id: number,
     talle: string | null,
-    color: string | null
+    color: string | null,
+    varianteId: number | null
   ) => {
     setCarrito(
       carritoActual =>
@@ -769,116 +973,333 @@ function App() {
             !(
               item.id === id &&
               item.talle === talle &&
-              item.color === color
+              item.color === color &&
+              item.variante_id ===
+                varianteId
             )
         )
     )
   }
 
+  // =====================================================
+  // CANTIDAD CARRITO
+  // =====================================================
+
   const cantidadCarrito =
     carrito.reduce(
-      (total, producto) =>
+      (
+        total,
+        producto
+      ) =>
         total +
-        (producto.cantidad || 1),
+        (producto.cantidad ||
+          1),
       0
     )
 
+  // =====================================================
+  // TOTAL CARRITO
+  // =====================================================
+
   const totalCarrito =
     carrito.reduce(
-      (total, producto) =>
+      (
+        total,
+        producto
+      ) =>
         total +
         Number(
           producto.price || 0
         ) *
-          (producto.cantidad || 1),
+          (producto.cantidad ||
+            1),
       0
     )
 
   // =====================================================
-  // WHATSAPP
+  // ABRIR CHECKOUT
   // =====================================================
 
-  const comprarPorWhatsApp = () => {
+  const abrirCheckout = () => {
     if (!carrito.length) {
       return
     }
 
-    let mensaje =
-      `Hola LuckePet, quiero realizar el siguiente pedido:\n\n`
+    setErrorPedido('')
+    setPedidoCreado(false)
+    setMostrarCarrito(false)
+    setMostrarCheckout(true)
+  }
 
-    mensaje +=
-      `PRODUCTOS\n\n`
+  // =====================================================
+  // CERRAR CHECKOUT
+  // =====================================================
 
-    carrito.forEach(
-      (
-        producto,
-        index
-      ) => {
-        const cantidad =
-          producto.cantidad || 1
+  const cerrarCheckout = () => {
+    if (enviandoPedido) {
+      return
+    }
 
-        const precio =
-          Number(
-            producto.price || 0
+    setMostrarCheckout(false)
+    setPedidoCreado(false)
+    setErrorPedido('')
+  }
+
+  // =====================================================
+  // ENVIAR PEDIDO
+  // =====================================================
+
+  const enviarPedido = async (
+    e: FormEvent<HTMLFormElement>
+  ) => {
+    e.preventDefault()
+
+    if (!carrito.length) {
+      setErrorPedido(
+        'Tu carrito está vacío.'
+      )
+
+      return
+    }
+
+    const campos =
+      Object.values(datosCliente)
+
+    if (
+      campos.some(
+        campo =>
+          !campo.trim()
+      )
+    ) {
+      setErrorPedido(
+        'Completá todos los campos.'
+      )
+
+      return
+    }
+
+    setEnviandoPedido(true)
+    setErrorPedido('')
+
+    try {
+      // ============================================
+      // VOLVER A CARGAR STOCK ACTUAL
+      // ============================================
+
+      const {
+        data: productosActualizados,
+        error: errorStock
+      } = await supabase
+        .from('Productos')
+        .select('*')
+        .in(
+          'id',
+          carrito.map(
+            producto =>
+              producto.id
+          )
+        )
+
+      if (errorStock) {
+        throw errorStock
+      }
+
+      const productosStock =
+        (productosActualizados ||
+          []) as Producto[]
+
+      // ============================================
+      // VERIFICAR STOCK ACTUAL
+      // ============================================
+
+      for (const producto of carrito) {
+        const productoActual =
+          productosStock.find(
+            item =>
+              item.id ===
+              producto.id
           )
 
-        const subtotal =
-          precio * cantidad
-
-        mensaje +=
-          `${index + 1}. ${producto.name}\n`
-
-        if (producto.talle) {
-          mensaje +=
-            `Talle: ${producto.talle}\n`
+        if (!productoActual) {
+          throw new Error(
+            `El producto "${producto.name}" ya no está disponible.`
+          )
         }
 
-        if (producto.color) {
-          mensaje +=
-            `Color: ${producto.color}\n`
+        const disponible =
+          stockDisponible(
+            productoActual
+          )
+
+        const cantidadSolicitada =
+          producto.cantidad || 1
+
+        if (
+          disponible <
+          cantidadSolicitada
+        ) {
+          throw new Error(
+            `Stock insuficiente para "${producto.name}". Disponible: ${disponible}.`
+          )
         }
-
-        mensaje +=
-          `Cantidad: ${cantidad}\n`
-
-        mensaje +=
-          `Precio unitario: $${precio.toLocaleString(
-            'es-AR'
-          )}\n`
-
-        mensaje +=
-          `Subtotal: $${subtotal.toLocaleString(
-            'es-AR'
-          )}\n\n`
       }
-    )
 
-    mensaje +=
-      `----------------------------\n\n`
+      // ============================================
+      // PREPARAR ITEMS DEL PEDIDO
+      // ============================================
 
-    mensaje +=
-      `TOTAL: $${totalCarrito.toLocaleString(
-        'es-AR'
-      )}\n\n`
+      const items = carrito.map(
+        producto => {
+          const cantidad =
+            producto.cantidad || 1
 
-    mensaje +=
-      `Gracias.`
+          const precio =
+            Number(
+              producto.price || 0
+            )
 
-    const numero =
-      '5492664015639'
+          return {
+            producto_id:
+              producto.id,
 
-    const url =
-      `https://wa.me/${numero}?text=${encodeURIComponent(
+            nombre_producto:
+              producto.name,
+
+            talle:
+              producto.talle || '',
+
+            color:
+              producto.color || '',
+
+            variante_id:
+              producto.variante_id
+                ? String(
+                    producto.variante_id
+                  )
+                : '',
+
+            cantidad,
+
+            precio_unitario:
+              precio,
+
+            imagen:
+              producto.image ||
+              imagenesPortada[
+                producto.id
+              ] ||
+              ''
+          }
+        }
+      )
+
+      // ============================================
+      // CREAR PEDIDO
+      //
+      // crear_pedido() hace:
+      //
+      // 1. Crea Pedidos como pendiente
+      // 2. Crea PedidoItems
+      // 3. Reserva stock
+      //
+      // NO descuenta stock real todavía.
+      // ============================================
+
+      const {
+        data: pedidoId,
+        error
+      } = await supabase.rpc(
+        'crear_pedido',
+        {
+          p_nombre:
+            datosCliente.nombre.trim(),
+
+          p_apellido:
+            datosCliente.apellido.trim(),
+
+          p_direccion:
+            datosCliente.direccion.trim(),
+
+          p_codigo_postal:
+            datosCliente.codigo_postal.trim(),
+
+          p_telefono:
+            datosCliente.telefono.trim(),
+
+          p_email:
+            datosCliente.email.trim(),
+
+          p_total:
+            totalCarrito,
+
+          p_items:
+            items
+        }
+      )
+
+      if (error) {
+        console.error(
+          'ERROR CREANDO PEDIDO:',
+          error
+        )
+
+        throw error
+      }
+
+      console.log(
+        'PEDIDO CREADO:',
+        pedidoId
+      )
+
+      // ============================================
+      // ÉXITO
+      // ============================================
+
+      setPedidoCreado(true)
+
+      setCarrito([])
+
+      setMostrarCarrito(false)
+
+      // Actualizar productos para mostrar
+      // el stock disponible luego de reservar.
+      await cargarProductos()
+
+      setDatosCliente({
+        nombre: '',
+        apellido: '',
+        direccion: '',
+        codigo_postal: '',
+        telefono: '',
+        email: ''
+      })
+    } catch (error) {
+      console.error(
+        'ERROR CREANDO PEDIDO:',
+        error
+      )
+
+      const mensaje =
+        error instanceof Error
+          ? error.message
+          : ''
+
+      if (
         mensaje
-      )}`
-
-    window.open(
-      url,
-      '_blank'
-    )
-
-    setCarrito([])
-    setMostrarCarrito(false)
+          .toLowerCase()
+          .includes('stock')
+      ) {
+        setErrorPedido(
+          'No hay stock suficiente para uno de los productos. Revisá tu carrito e intentá nuevamente.'
+        )
+      } else {
+        setErrorPedido(
+          'No pudimos registrar el pedido. Intentá nuevamente.'
+        )
+      }
+    } finally {
+      setEnviandoPedido(false)
+    }
   }
 
   // =====================================================
@@ -905,7 +1326,9 @@ function App() {
             )
               ? producto.category
               : producto.category
-                ? [producto.category]
+                ? [
+                    producto.category
+                  ]
                 : []
           ).includes(
             categoriaSeleccionada
@@ -918,7 +1341,8 @@ function App() {
 
   const fotoAnterior = () => {
     if (
-      imagenesProducto.length <= 1
+      imagenesProducto.length <=
+      1
     ) {
       return
     }
@@ -926,14 +1350,16 @@ function App() {
     setFotoActual(
       actual =>
         actual === 0
-          ? imagenesProducto.length - 1
+          ? imagenesProducto.length -
+            1
           : actual - 1
     )
   }
 
   const fotoSiguiente = () => {
     if (
-      imagenesProducto.length <= 1
+      imagenesProducto.length <=
+      1
     ) {
       return
     }
@@ -941,7 +1367,8 @@ function App() {
     setFotoActual(
       actual =>
         actual ===
-        imagenesProducto.length - 1
+        imagenesProducto.length -
+          1
           ? 0
           : actual + 1
     )
@@ -969,15 +1396,19 @@ function App() {
     }
 
     const final =
-      e.changedTouches[0].clientX
+      e.changedTouches[0]
+        .clientX
 
     const diferencia =
       inicioToque - final
 
     if (
-      Math.abs(diferencia) >= 50
+      Math.abs(diferencia) >=
+      50
     ) {
-      if (diferencia > 0) {
+      if (
+        diferencia > 0
+      ) {
         fotoSiguiente()
       } else {
         fotoAnterior()
@@ -988,12 +1419,11 @@ function App() {
   }
 
   // =====================================================
-  // RETURN
+  // RENDER
   // =====================================================
 
   return (
     <div className="app">
-
       <Header
         setMostrarCarrito={
           setMostrarCarrito
@@ -1001,8 +1431,12 @@ function App() {
         cantidadCarrito={
           cantidadCarrito
         }
-        busqueda={busqueda}
-        setBusqueda={setBusqueda}
+        busqueda={
+          busqueda
+        }
+        setBusqueda={
+          setBusqueda
+        }
       />
 
       <Navbar
@@ -1020,9 +1454,7 @@ function App() {
 
       {mostrarCarrito && (
         <div className="carrito-lateral">
-
           <div className="carrito-header">
-
             <h2>
               🛒 Mi carrito
             </h2>
@@ -1030,33 +1462,27 @@ function App() {
             <button
               className="cerrar-carrito"
               onClick={() =>
-                setMostrarCarrito(false)
+                setMostrarCarrito(
+                  false
+                )
               }
             >
               ×
             </button>
-
           </div>
 
           {carrito.length === 0 ? (
-
             <p>
               Tu carrito está vacío
             </p>
-
           ) : (
-
             <>
               {carrito.map(
                 producto => (
-
                   <div
                     className="item-carrito"
-                    key={
-                      `${producto.id}-${producto.talle || 'sin-talle'}-${producto.color || 'sin-color'}`
-                    }
+                    key={`${producto.id}-${producto.talle || 'sin-talle'}-${producto.color || 'sin-color'}-${producto.variante_id || 'sin-variante'}`}
                   >
-
                     <img
                       src={
                         producto.image ||
@@ -1071,7 +1497,6 @@ function App() {
                     />
 
                     <div className="info-carrito">
-
                       <h4>
                         {
                           producto.name
@@ -1106,13 +1531,13 @@ function App() {
                       </p>
 
                       <div className="cantidad-carrito">
-
                         <button
                           onClick={() =>
                             quitarDelCarrito(
                               producto.id,
                               producto.talle,
-                              producto.color
+                              producto.color,
+                              producto.variante_id
                             )
                           }
                         >
@@ -1134,7 +1559,6 @@ function App() {
                         >
                           +
                         </button>
-
                       </div>
 
                       <button
@@ -1143,23 +1567,20 @@ function App() {
                           eliminarDelCarrito(
                             producto.id,
                             producto.talle,
-                            producto.color
+                            producto.color,
+                            producto.variante_id
                           )
                         }
                       >
                         Eliminar
                       </button>
-
                     </div>
-
                   </div>
                 )
               )}
 
               <div className="total-carrito">
-
                 <div>
-
                   <span>
                     Total
                   </span>
@@ -1170,22 +1591,335 @@ function App() {
                       'es-AR'
                     )}
                   </strong>
-
                 </div>
 
                 <button
                   className="boton-comprar"
                   onClick={
-                    comprarPorWhatsApp
+                    abrirCheckout
                   }
                 >
-                  Comprar por WhatsApp
+                  Comprar
                 </button>
-
               </div>
             </>
           )}
+        </div>
+      )}
 
+      {/* =================================================
+          CHECKOUT
+      ================================================= */}
+
+      {mostrarCheckout && (
+        <div
+          className="producto-overlay"
+          onClick={e => {
+            if (
+              e.target ===
+              e.currentTarget
+            ) {
+              cerrarCheckout()
+            }
+          }}
+        >
+          <div className="producto-detalle checkout-detalle">
+            <div className="producto-detalle-header">
+              <button
+                className="producto-volver"
+                onClick={
+                  cerrarCheckout
+                }
+                disabled={
+                  enviandoPedido
+                }
+              >
+                ←
+              </button>
+
+              <span>
+                Finalizar compra
+              </span>
+
+              <button
+                className="producto-cerrar"
+                onClick={
+                  cerrarCheckout
+                }
+                disabled={
+                  enviandoPedido
+                }
+              >
+                ×
+              </button>
+            </div>
+
+            {!pedidoCreado ? (
+              <form
+                className="checkout-form"
+                onSubmit={
+                  enviarPedido
+                }
+              >
+                <h1>
+                  Datos de entrega
+                </h1>
+
+                <p className="checkout-subtitulo">
+                  Completá tus datos para
+                  enviar el pedido.
+                </p>
+
+                {/* RESUMEN */}
+
+                <div className="checkout-resumen">
+                  <strong>
+                    Resumen del pedido
+                  </strong>
+
+                  {carrito.map(
+                    producto => (
+                      <div
+                        className="checkout-item"
+                        key={`${producto.id}-${producto.talle || 'sin-talle'}-${producto.color || 'sin-color'}-${producto.variante_id || 'sin-variante'}`}
+                      >
+                        <span>
+                          {producto.name}
+                          {' × '}
+                          {
+                            producto.cantidad
+                          }
+
+                          {producto.talle
+                            ? ` · ${producto.talle}`
+                            : ''}
+
+                          {producto.color
+                            ? ` · ${producto.color}`
+                            : ''}
+                        </span>
+
+                        <strong>
+                          $
+                          {(
+                            Number(
+                              producto.price ||
+                                0
+                            ) *
+                            (producto.cantidad ||
+                              1)
+                          ).toLocaleString(
+                            'es-AR'
+                          )}
+                        </strong>
+                      </div>
+                    )
+                  )}
+
+                  <div className="checkout-total">
+                    <span>
+                      Total
+                    </span>
+
+                    <strong>
+                      $
+                      {totalCarrito.toLocaleString(
+                        'es-AR'
+                      )}
+                    </strong>
+                  </div>
+                </div>
+
+                {/* DATOS */}
+
+                <div className="checkout-grid">
+                  <label>
+                    Nombre
+
+                    <input
+                      type="text"
+                      value={
+                        datosCliente.nombre
+                      }
+                      onChange={e =>
+                        setDatosCliente(
+                          actual => ({
+                            ...actual,
+                            nombre:
+                              e.target.value
+                          })
+                        )
+                      }
+                      autoComplete="given-name"
+                      required
+                    />
+                  </label>
+
+                  <label>
+                    Apellido
+
+                    <input
+                      type="text"
+                      value={
+                        datosCliente.apellido
+                      }
+                      onChange={e =>
+                        setDatosCliente(
+                          actual => ({
+                            ...actual,
+                            apellido:
+                              e.target.value
+                          })
+                        )
+                      }
+                      autoComplete="family-name"
+                      required
+                    />
+                  </label>
+
+                  <label className="checkout-campo-completo">
+                    Dirección
+
+                    <input
+                      type="text"
+                      value={
+                        datosCliente.direccion
+                      }
+                      onChange={e =>
+                        setDatosCliente(
+                          actual => ({
+                            ...actual,
+                            direccion:
+                              e.target.value
+                          })
+                        )
+                      }
+                      autoComplete="street-address"
+                      required
+                    />
+                  </label>
+
+                  <label>
+                    Código Postal
+
+                    <input
+                      type="text"
+                      value={
+                        datosCliente.codigo_postal
+                      }
+                      onChange={e =>
+                        setDatosCliente(
+                          actual => ({
+                            ...actual,
+                            codigo_postal:
+                              e.target.value
+                          })
+                        )
+                      }
+                      autoComplete="postal-code"
+                      required
+                    />
+                  </label>
+
+                  <label>
+                    Teléfono
+
+                    <input
+                      type="tel"
+                      value={
+                        datosCliente.telefono
+                      }
+                      onChange={e =>
+                        setDatosCliente(
+                          actual => ({
+                            ...actual,
+                            telefono:
+                              e.target.value
+                          })
+                        )
+                      }
+                      autoComplete="tel"
+                      required
+                    />
+                  </label>
+
+                  <label className="checkout-campo-completo">
+                    Email
+
+                    <input
+                      type="email"
+                      value={
+                        datosCliente.email
+                      }
+                      onChange={e =>
+                        setDatosCliente(
+                          actual => ({
+                            ...actual,
+                            email:
+                              e.target.value
+                          })
+                        )
+                      }
+                      autoComplete="email"
+                      required
+                    />
+                  </label>
+                </div>
+
+                {errorPedido && (
+                  <div className="checkout-error">
+                    {errorPedido}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  className="producto-boton-carrito checkout-boton"
+                  disabled={
+                    enviandoPedido ||
+                    carrito.length === 0
+                  }
+                >
+                  {enviandoPedido
+                    ? 'Enviando pedido...'
+                    : 'Enviar pedido'}
+                </button>
+              </form>
+            ) : (
+              <div className="checkout-exito">
+                <div className="checkout-exito-icono">
+                  ✓
+                </div>
+
+                <h1>
+                  ¡Pedido recibido!
+                </h1>
+
+                <p>
+                  Recibimos tu pedido
+                  correctamente.
+                </p>
+
+                <p>
+                  Tu pedido quedó
+                  pendiente de
+                  confirmación. Nos vamos
+                  a comunicar con vos para
+                  confirmar disponibilidad
+                  y coordinar la entrega.
+                </p>
+
+                <button
+                  className="producto-boton-carrito"
+                  onClick={
+                    cerrarCheckout
+                  }
+                >
+                  Seguir comprando
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -1194,13 +1928,9 @@ function App() {
       ================================================= */}
 
       <section className="productos">
-
         <div className="tarjetas">
-
           {productosFiltrados.length === 0 ? (
-
             <div className="sin-productos">
-
               <h3>
                 🐾 No encontramos
                 productos
@@ -1210,14 +1940,10 @@ function App() {
                 Probá buscando otro
                 producto.
               </p>
-
             </div>
-
           ) : (
-
             productosFiltrados.map(
               producto => {
-
                 const imagenPortada =
                   imagenesPortada[
                     producto.id
@@ -1225,8 +1951,15 @@ function App() {
                   producto.image?.trim() ||
                   ''
 
-                return (
+                const disponible =
+                  stockDisponible(
+                    producto
+                  )
 
+                const sinStock =
+                  disponible <= 0
+
+                return (
                   <div
                     className="tarjeta"
                     key={
@@ -1238,35 +1971,67 @@ function App() {
                       )
                     }
                   >
-
                     <div className="imagen-producto">
-
                       {imagenPortada ? (
-
-                        <img
-                          src={
-                            imagenPortada
-                          }
-                          alt={
-                            producto.name
-                          }
-                          loading="lazy"
-                          decoding="async"
-                          width="800"
-                          height="800"
-                          onError={e => {
-                            console.error(
-                              'ERROR IMAGEN PORTADA:',
-                              imagenPortada
-                            )
-
-                            e.currentTarget.style.display =
-                              'none'
+                        <div
+                          style={{
+                            position:
+                              'relative',
+                            width:
+                              '100%'
                           }}
-                        />
+                        >
+                          <img
+                            src={
+                              imagenPortada
+                            }
+                            alt={
+                              producto.name
+                            }
+                            loading="lazy"
+                            decoding="async"
+                            width="800"
+                            height="800"
+                            onError={e => {
+                              console.error(
+                                'ERROR IMAGEN PORTADA:',
+                                imagenPortada
+                              )
 
+                              e.currentTarget.style.display =
+                                'none'
+                            }}
+                          />
+
+                          {sinStock && (
+                            <div
+                              style={{
+                                position:
+                                  'absolute',
+                                inset: 0,
+                                background:
+                                  'rgba(0, 0, 0, 0.58)',
+                                display:
+                                  'flex',
+                                alignItems:
+                                  'center',
+                                justifyContent:
+                                  'center',
+                                color:
+                                  'white',
+                                fontSize:
+                                  '20px',
+                                fontWeight:
+                                  'bold',
+                                letterSpacing:
+                                  '1px'
+                              }}
+                            >
+                              SIN STOCK
+                            </div>
+                          )}
+                        </div>
                       ) : (
-
                         <div
                           style={{
                             height:
@@ -1281,13 +2046,10 @@ function App() {
                         >
                           Sin imagen
                         </div>
-
                       )}
-
                     </div>
 
                     <div className="info-producto">
-
                       <h3>
                         {
                           producto.name
@@ -1295,28 +2057,32 @@ function App() {
                       </h3>
 
                       <div className="precio-carrito">
-
                         <strong className="precio">
-
                           $
                           {Number(
                             producto.price
                           ).toLocaleString(
                             'es-AR'
                           )}
-
                         </strong>
 
                         <button
                           className="boton-agregar"
+                          disabled={
+                            sinStock
+                          }
                           onClick={e => {
-
                             e.stopPropagation()
+
+                            if (
+                              sinStock
+                            ) {
+                              return
+                            }
 
                             if (
                               producto.tiene_talle
                             ) {
-
                               abrirProducto(
                                 producto
                               )
@@ -1326,30 +2092,34 @@ function App() {
 
                             agregarAlCarrito({
                               ...producto,
-                              talle: null,
-                              color: null,
+                              talle:
+                                null,
+                              color:
+                                null,
                               image:
-                                imagenPortada
+                                imagenPortada,
+                              price:
+                                Number(
+                                  producto.price ||
+                                    0
+                                ),
+                              variante_id:
+                                null,
+                              cantidad:
+                                1
                             })
-
                           }}
                         >
                           +
                         </button>
-
                       </div>
-
                     </div>
-
                   </div>
-
                 )
               }
             )
           )}
-
         </div>
-
       </section>
 
       {/* =================================================
@@ -1358,32 +2128,33 @@ function App() {
 
       {productoSeleccionado && (
         <>
-
           {/* =================================================
               IMAGEN AMPLIADA
           ================================================= */}
 
           {imagenAmpliada &&
             imagenesProducto.length > 0 && (
-
               <div
                 className="imagen-ampliada-overlay"
                 onClick={() =>
-                  setImagenAmpliada(false)
+                  setImagenAmpliada(
+                    false
+                  )
                 }
               >
-
                 <button
                   className="imagen-ampliada-cerrar"
                   onClick={() =>
-                    setImagenAmpliada(false)
+                    setImagenAmpliada(
+                      false
+                    )
                   }
                 >
                   ×
                 </button>
 
-                {imagenesProducto.length > 1 && (
-
+                {imagenesProducto.length >
+                  1 && (
                   <button
                     className="imagen-ampliada-flecha izquierda"
                     onClick={e => {
@@ -1393,7 +2164,6 @@ function App() {
                   >
                     ‹
                   </button>
-
                 )}
 
                 <img
@@ -1411,8 +2181,8 @@ function App() {
                   }
                 />
 
-                {imagenesProducto.length > 1 && (
-
+                {imagenesProducto.length >
+                  1 && (
                   <button
                     className="imagen-ampliada-flecha derecha"
                     onClick={e => {
@@ -1422,23 +2192,17 @@ function App() {
                   >
                     ›
                   </button>
-
                 )}
 
-                {imagenesProducto.length > 1 && (
-
+                {imagenesProducto.length >
+                  1 && (
                   <div className="imagen-ampliada-contador">
-
                     {fotoActual + 1} /{' '}
-
                     {
                       imagenesProducto.length
                     }
-
                   </div>
-
                 )}
-
               </div>
             )}
 
@@ -1447,11 +2211,10 @@ function App() {
           ================================================= */}
 
           <div className="producto-overlay">
-
             <div className="producto-detalle">
+              {/* CABECERA */}
 
               <div className="producto-detalle-header">
-
                 <button
                   className="producto-volver"
                   onClick={
@@ -1473,7 +2236,6 @@ function App() {
                 >
                   ×
                 </button>
-
               </div>
 
               {/* =================================================
@@ -1489,27 +2251,32 @@ function App() {
                   manejarTouchEnd
                 }
               >
-
                 {cargandoDetalle ? (
-
                   <div className="producto-cargando">
                     Cargando imágenes...
                   </div>
+                ) : imagenesProducto.length >
+                  0 ? (
+                  <img
+                    src={
+                      imagenesProducto[
+                        fotoActual
+                      ]
+                    }
+                    alt={
+                      productoSeleccionado.name
+                    }
+                    className="producto-foto-principal"
+                    width="800"
+                    height="800"
+                    onClick={e => {
+                      e.stopPropagation()
 
-                ) : imagenesProducto.length > 0 ? (
-
-               <img
-  src={imagenesProducto[fotoActual]}
-  alt={productoSeleccionado.name}
-  className="producto-foto-principal"
-  width="800"
-  height="800"
-  onClick={(e) => {
-    e.stopPropagation()
-    setImagenAmpliada(true)
-  }}
+                      setImagenAmpliada(
+                        true
+                      )
+                    }}
                     onError={e => {
-
                       console.error(
                         'ERROR MOSTRANDO IMAGEN:',
                         imagenesProducto[
@@ -1522,74 +2289,64 @@ function App() {
                     }}
                     style={{
                       cursor:
-                        'zoom-in'
+                        'zoom-in',
+                      pointerEvents:
+                        'auto'
                     }}
                   />
-
                 ) : (
-
                   <div className="producto-sin-imagen">
                     Sin imagen
                   </div>
-
                 )}
 
-                {imagenesProducto.length > 1 && (
-
+                {imagenesProducto.length >
+                  1 && (
                   <>
-
                     <button
                       className="galeria-flecha galeria-anterior"
-                      onClick={
-                        fotoAnterior
-                      }
+                      onClick={e => {
+                        e.stopPropagation()
+                        fotoAnterior()
+                      }}
                     >
                       ‹
                     </button>
 
                     <button
                       className="galeria-flecha galeria-siguiente"
-                      onClick={
-                        fotoSiguiente
-                      }
+                      onClick={e => {
+                        e.stopPropagation()
+                        fotoSiguiente()
+                      }}
                     >
                       ›
                     </button>
 
                     <div className="galeria-contador">
-
                       {fotoActual + 1} /{' '}
-
                       {
                         imagenesProducto.length
                       }
-
                     </div>
-
                   </>
-
                 )}
-
               </div>
 
               {/* =================================================
                   MINIATURAS
               ================================================= */}
 
-              {imagenesProducto.length > 1 && (
-
+              {imagenesProducto.length >
+                1 && (
                 <div className="producto-miniaturas">
-
                   {imagenesProducto.map(
                     (
                       imagen,
                       index
                     ) => (
-
                       <button
-                        key={`${normalizarUrl(
-                          imagen
-                        )}-${index}`}
+                        key={`${normalizarUrl(imagen)}-${index}`}
                         className={
                           fotoActual ===
                           index
@@ -1602,21 +2359,19 @@ function App() {
                           )
                         }
                       >
-
                         <img
-                          src={imagen}
+                          src={
+                            imagen
+                          }
                           alt=""
                           loading="lazy"
                           decoding="async"
                           width="150"
                           height="150"
                         />
-
                       </button>
-
                     )
                   )}
-
                 </div>
               )}
 
@@ -1625,9 +2380,7 @@ function App() {
               ================================================= */}
 
               <div className="producto-info-detalle">
-
                 <div className="producto-categoria">
-
                   {Array.isArray(
                     productoSeleccionado.category
                   )
@@ -1636,7 +2389,6 @@ function App() {
                       )
                     : productoSeleccionado.category ||
                       'Producto'}
-
                 </div>
 
                 <h1>
@@ -1646,18 +2398,16 @@ function App() {
                 </h1>
 
                 <div className="producto-precio">
-
                   $
                   {obtenerPrecioActual().toLocaleString(
                     'es-AR'
                   )}
-
                 </div>
 
+                {/* DESCRIPCIÓN */}
+
                 {productoSeleccionado.description && (
-
                   <div className="producto-descripcion">
-
                     <h3>
                       Descripción
                     </h3>
@@ -1667,9 +2417,7 @@ function App() {
                         productoSeleccionado.description
                       }
                     </p>
-
                   </div>
-
                 )}
 
                 {/* =================================================
@@ -1677,37 +2425,31 @@ function App() {
                 ================================================= */}
 
                 {productoSeleccionado.tiene_talle && (
-
                   <div className="selector-producto">
-
                     <div className="selector-titulo">
-
                       <strong>
                         Talle
                       </strong>
 
                       {talleSeleccionado && (
-
                         <span>
                           {
                             talleSeleccionado
                           }
                         </span>
-
                       )}
-
                     </div>
 
                     <div className="opciones-producto">
-
                       {(
                         productoSeleccionado.talles ||
                         []
                       ).map(
                         talle => (
-
                           <button
-                            key={talle}
+                            key={
+                              talle
+                            }
                             className={
                               talleSeleccionado ===
                               talle
@@ -1720,16 +2462,14 @@ function App() {
                               )
                             }
                           >
-                            {talle}
+                            {
+                              talle
+                            }
                           </button>
-
                         )
                       )}
-
                     </div>
-
                   </div>
-
                 )}
 
                 {/* =================================================
@@ -1738,35 +2478,30 @@ function App() {
 
                 {productoSeleccionado.tiene_talle &&
                   talleSeleccionado &&
-                  coloresDisponibles.length > 0 && (
-
+                  coloresDisponibles.length >
+                    0 && (
                     <div className="selector-producto">
-
                       <div className="selector-titulo">
-
                         <strong>
                           Color
                         </strong>
 
                         {colorSeleccionado && (
-
                           <span>
                             {
                               colorSeleccionado
                             }
                           </span>
-
                         )}
-
                       </div>
 
                       <div className="opciones-producto">
-
                         {coloresDisponibles.map(
                           color => (
-
                             <button
-                              key={color}
+                              key={
+                                color
+                              }
                               className={
                                 colorSeleccionado ===
                                 color
@@ -1779,16 +2514,14 @@ function App() {
                                 )
                               }
                             >
-                              {color}
+                              {
+                                color
+                              }
                             </button>
-
                           )
                         )}
-
                       </div>
-
                     </div>
-
                   )}
 
                 {/* =================================================
@@ -1796,15 +2529,16 @@ function App() {
                 ================================================= */}
 
                 <div className="producto-stock">
-
                   <span className="stock-punto"></span>
 
-                  {productoSeleccionado.stock > 0
-                    ? 'Stock disponible'
+                  {stockDisponible(
+                    productoSeleccionado
+                  ) > 0
+                    ? `Stock disponible: ${stockDisponible(
+                        productoSeleccionado
+                      )}`
                     : 'Sin stock'}
-
                 </div>
-
               </div>
 
               {/* =================================================
@@ -1812,23 +2546,30 @@ function App() {
               ================================================= */}
 
               <div className="producto-footer">
-
                 <button
                   className="producto-boton-carrito"
                   disabled={
-                    productoSeleccionado.stock <= 0
+                    stockDisponible(
+                      productoSeleccionado
+                    ) <= 0
                   }
                   onClick={() => {
+                    if (
+                      stockDisponible(
+                        productoSeleccionado
+                      ) <= 0
+                    ) {
+                      alert(
+                        'Este producto no tiene stock disponible.'
+                      )
 
-                    // ---------------------------------------------
-                    // VERIFICAR TALLE
-                    // ---------------------------------------------
+                      return
+                    }
 
                     if (
                       productoSeleccionado.tiene_talle &&
                       !talleSeleccionado
                     ) {
-
                       alert(
                         'Seleccioná un talle.'
                       )
@@ -1836,17 +2577,13 @@ function App() {
                       return
                     }
 
-                    // ---------------------------------------------
-                    // VERIFICAR COLOR
-                    // ---------------------------------------------
-
                     if (
                       productoSeleccionado.tiene_talle &&
                       variantes.length > 0 &&
-                      coloresDisponibles.length > 0 &&
+                      coloresDisponibles.length >
+                        0 &&
                       !colorSeleccionado
                     ) {
-
                       alert(
                         'Seleccioná un color.'
                       )
@@ -1854,16 +2591,8 @@ function App() {
                       return
                     }
 
-                    // ---------------------------------------------
-                    // VARIANTE EXACTA
-                    // ---------------------------------------------
-
                     const varianteSeleccionada =
                       obtenerVarianteSeleccionada()
-
-                    // ---------------------------------------------
-                    // PRECIO
-                    // ---------------------------------------------
 
                     const precioSeleccionado =
                       varianteSeleccionada
@@ -1873,10 +2602,6 @@ function App() {
                           )
                         : obtenerPrecioActual()
 
-                    // ---------------------------------------------
-                    // IMAGEN
-                    // ---------------------------------------------
-
                     const imagenCarrito =
                       imagenesProducto[0] ||
                       imagenesPortada[
@@ -1885,12 +2610,7 @@ function App() {
                       productoSeleccionado.image ||
                       ''
 
-                    // ---------------------------------------------
-                    // AGREGAR
-                    // ---------------------------------------------
-
                     agregarAlCarrito({
-
                       ...productoSeleccionado,
 
                       talle:
@@ -1904,39 +2624,33 @@ function App() {
                       image:
                         imagenCarrito,
 
-                      // MUY IMPORTANTE:
-                      // se guarda el precio de la variante
                       price:
                         precioSeleccionado,
 
                       variante_id:
                         varianteSeleccionada?.id ||
-                        null
+                        null,
+
+                      cantidad:
+                        1
                     })
 
                     cerrarProducto()
-
                   }}
                 >
-
-                  {productoSeleccionado.stock > 0
+                  {stockDisponible(
+                    productoSeleccionado
+                  ) > 0
                     ? 'Agregar al carrito'
                     : 'Sin stock'}
-
                 </button>
-
               </div>
-
             </div>
-
           </div>
-
         </>
-
       )}
 
       <Footer />
-
     </div>
   )
 }
