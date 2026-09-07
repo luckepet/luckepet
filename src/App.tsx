@@ -46,6 +46,12 @@ type ItemCarrito = Producto & {
   image: string | null
 }
 
+// =====================================================
+// WHATSAPP LUCKEPET
+// =====================================================
+
+const WHATSAPP_NUMERO = '5492664015639'
+
 function App() {
   const [productos, setProductos] = useState<Producto[]>([])
 
@@ -108,6 +114,16 @@ function App() {
     useState(false)
 
   const [pedidoCreado, setPedidoCreado] =
+    useState(false)
+
+  // URL de WhatsApp del pedido recién creado.
+  // Se guarda para abrir WhatsApp DESPUÉS
+  // de mostrar el cartel de gracias.
+  const [urlWhatsAppPedido, setUrlWhatsAppPedido] =
+    useState('')
+
+  // Indica si el email fue enviado correctamente.
+  const [emailEnviado, setEmailEnviado] =
     useState(false)
 
   const [errorPedido, setErrorPedido] =
@@ -632,8 +648,6 @@ function App() {
 
     setColorSeleccionado('')
 
-    // Al cambiar talle volvemos
-    // a las imágenes generales.
     setImagenesProducto(
       imagenesGenerales
     )
@@ -827,8 +841,6 @@ function App() {
   ) => {
     setCarrito(
       carritoActual => {
-        // Cantidad que ya hay de ESTE
-        // producto/variante en el carrito.
         const cantidadActual =
           carritoActual
             .filter(
@@ -853,8 +865,6 @@ function App() {
               0
             )
 
-        // Buscamos el producto actual
-        // en el estado de productos.
         const productoActual =
           productos.find(
             item =>
@@ -862,7 +872,6 @@ function App() {
               producto.id
           )
 
-        // Verificamos el stock disponible.
         if (productoActual) {
           const disponible =
             stockDisponible(
@@ -1027,6 +1036,8 @@ function App() {
 
     setErrorPedido('')
     setPedidoCreado(false)
+    setUrlWhatsAppPedido('')
+    setEmailEnviado(false)
     setMostrarCarrito(false)
     setMostrarCheckout(true)
   }
@@ -1080,6 +1091,7 @@ function App() {
 
     setEnviandoPedido(true)
     setErrorPedido('')
+    setEmailEnviado(false)
 
     try {
       // ============================================
@@ -1252,6 +1264,78 @@ function App() {
       )
 
       // ============================================
+      // ENVIAR EMAIL AUTOMÁTICO
+      //
+      // La Edge Function busca el pedido
+      // directamente en Supabase y manda
+      // el mail completo al cliente.
+      //
+      // Si el mail falla, NO se cancela
+      // el pedido porque ya fue creado.
+      // ============================================
+
+      const {
+        error: errorEmail
+      } = await supabase.functions.invoke(
+        'enviar-email-pedido',
+        {
+          body: {
+            pedidoId
+          }
+        }
+      )
+
+      if (errorEmail) {
+        console.error(
+          'ERROR ENVIANDO EMAIL:',
+          errorEmail
+        )
+
+        setEmailEnviado(false)
+      } else {
+        setEmailEnviado(true)
+      }
+
+      // ============================================
+      // PREPARAR MENSAJE DE WHATSAPP
+      // ============================================
+
+      const numeroPedido =
+        String(pedidoId)
+
+      const nombreCompleto =
+        `${datosCliente.nombre.trim()} ${datosCliente.apellido.trim()}`
+
+      const totalPedido =
+        totalCarrito.toLocaleString(
+          'es-AR'
+        )
+
+      const mensajeWhatsApp =
+        `Hola LuckePet 👋\n` +
+        `Ya realicé mi compra.\n\n` +
+        `N.º de pedido: #${numeroPedido}\n` +
+        `Nombre: ${nombreCompleto}\n` +
+        `Total: $${totalPedido}\n\n` +
+        `Muchas gracias.`
+
+      const urlWhatsApp =
+        `https://wa.me/${WHATSAPP_NUMERO}?text=${encodeURIComponent(
+          mensajeWhatsApp
+        )}`
+
+      // ============================================
+      // GUARDAR URL DE WHATSAPP
+      //
+      // NO abrimos WhatsApp todavía.
+      // Primero mostramos el cartel de gracias.
+      // ============================================
+
+      setUrlWhatsAppPedido(
+        urlWhatsApp
+      )
+
+      // ============================================
       // ÉXITO
       // ============================================
 
@@ -1273,6 +1357,7 @@ function App() {
         telefono: '',
         email: ''
       })
+
     } catch (error) {
       console.error(
         'ERROR CREANDO PEDIDO:',
@@ -1892,7 +1977,7 @@ function App() {
                 </div>
 
                 <h1>
-                  ¡Pedido recibido!
+                  ¡Gracias por tu compra!
                 </h1>
 
                 <p>
@@ -1903,13 +1988,47 @@ function App() {
                 <p>
                   Tu pedido quedó
                   pendiente de
-                  confirmación. Nos vamos
-                  a comunicar con vos para
-                  confirmar disponibilidad
-                  y coordinar la entrega.
+                  confirmación.
                 </p>
 
+                {emailEnviado ? (
+                  <p>
+                    Te enviamos un email con
+                    todos los detalles de tu
+                    compra.
+                  </p>
+                ) : (
+                  <p>
+                    Podés continuar la
+                    coordinación de tu compra
+                    por WhatsApp.
+                  </p>
+                )}
+
+                <p>
+                  Para continuar con la
+                  coordinación de tu
+                  compra, escribinos por
+                  WhatsApp.
+                </p>
+
+                {urlWhatsAppPedido && (
+                  <button
+                    type="button"
+                    className="producto-boton-carrito"
+                    onClick={() =>
+                      window.open(
+                        urlWhatsAppPedido,
+                        '_blank'
+                      )
+                    }
+                  >
+                    Continuar por WhatsApp
+                  </button>
+                )}
+
                 <button
+                  type="button"
                   className="producto-boton-carrito"
                   onClick={
                     cerrarCheckout
