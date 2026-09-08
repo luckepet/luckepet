@@ -63,6 +63,20 @@ type PedidoItem = {
   imagen: string | null;
 };
 
+/* ============================================================
+   ESTADÍSTICAS
+============================================================ */
+
+type Visita = {
+  id: number;
+  session_id: string;
+  evento: string;
+  producto_id: number | null;
+  producto_nombre: string | null;
+  dispositivo: string | null;
+  fecha: string;
+};
+
 const productoVacio = {
   name: "",
   description: "",
@@ -146,6 +160,14 @@ function Admin() {
   const [nuevoTalleEditando, setNuevoTalleEditando] = useState("");
 
   // ============================================================
+  // ESTADÍSTICAS
+  // ============================================================
+
+  const [visitas, setVisitas] = useState<Visita[]>([]);
+  const [cargandoEstadisticas, setCargandoEstadisticas] =
+    useState(false);
+
+  // ============================================================
   // PEDIDOS
   // ============================================================
 
@@ -192,6 +214,33 @@ function Admin() {
     }));
   }
 
+  // ============================================================
+  // CARGAR ESTADÍSTICAS
+  // ============================================================
+
+  async function cargarEstadisticas() {
+    setCargandoEstadisticas(true);
+
+    const { data, error } = await supabase
+      .from("Visitas")
+      .select("*")
+      .order("fecha", { ascending: false });
+
+    if (error) {
+      console.error(
+        "ERROR AL CARGAR ESTADÍSTICAS:",
+        error
+      );
+
+      setVisitas([]);
+      setCargandoEstadisticas(false);
+      return;
+    }
+
+    setVisitas((data || []) as Visita[]);
+    setCargandoEstadisticas(false);
+  }
+
   // =========================
   // SESIÓN
   // =========================
@@ -218,13 +267,15 @@ function Admin() {
   }, []);
 
   // =========================
-  // CARGAR PRODUCTOS Y PEDIDOS
+  // CARGAR PRODUCTOS, PEDIDOS
+  // Y ESTADÍSTICAS
   // =========================
 
   useEffect(() => {
     if (sesion) {
       cargarProductos();
       cargarPedidos();
+      cargarEstadisticas();
     }
   }, [sesion]);
 
@@ -349,6 +400,7 @@ function Admin() {
       await Promise.all([
         cargarPedidos(),
         cargarProductos(),
+        cargarEstadisticas(),
       ]);
     } finally {
       setProcesandoPedido(null);
@@ -359,68 +411,67 @@ function Admin() {
   // CANCELAR PEDIDO
   // =========================
 
- async function cancelarPedido(pedidoId: number) {
-  const confirmar = window.confirm(
-    "¿Eliminar este pedido?\n\nSi está pendiente, el stock reservado será devuelto automáticamente."
-  );
-
-  if (!confirmar) return;
-
-  setProcesandoPedido(pedidoId);
-
-  try {
-    const { error } = await supabase.rpc(
-      "eliminar_pedido",
-      {
-        p_pedido_id: pedidoId,
-      }
+  async function cancelarPedido(pedidoId: number) {
+    const confirmar = window.confirm(
+      "¿Eliminar este pedido?\n\nSi está pendiente, el stock reservado será devuelto automáticamente."
     );
 
-    if (error) {
-      console.error(
-        "ERROR AL ELIMINAR PEDIDO:",
-        error
+    if (!confirmar) return;
+
+    setProcesandoPedido(pedidoId);
+
+    try {
+      const { error } = await supabase.rpc(
+        "eliminar_pedido",
+        {
+          p_pedido_id: pedidoId,
+        }
       );
+
+      if (error) {
+        console.error(
+          "ERROR AL ELIMINAR PEDIDO:",
+          error
+        );
+
+        alert(
+          `No se pudo eliminar el pedido:\n\n${error.message}`
+        );
+
+        return;
+      }
+
+      setPedidos((actuales) =>
+        actuales.filter(
+          (pedido) =>
+            pedido.id !== pedidoId
+        )
+      );
+
+      setPedidoItems((actuales) => {
+        const copia = {
+          ...actuales,
+        };
+
+        delete copia[pedidoId];
+
+        return copia;
+      });
+
+      if (pedidoAbierto === pedidoId) {
+        setPedidoAbierto(null);
+      }
+
+      await cargarProductos();
+      await cargarEstadisticas();
 
       alert(
-        `No se pudo eliminar el pedido:\n\n${error.message}`
+        "Pedido eliminado y stock restaurado correctamente."
       );
-
-      return;
+    } finally {
+      setProcesandoPedido(null);
     }
-
-    // Lo sacamos inmediatamente de la pantalla
-    setPedidos((actuales) =>
-      actuales.filter(
-        (pedido) =>
-          pedido.id !== pedidoId
-      )
-    );
-
-    setPedidoItems((actuales) => {
-      const copia = {
-        ...actuales,
-      };
-
-      delete copia[pedidoId];
-
-      return copia;
-    });
-
-    if (pedidoAbierto === pedidoId) {
-      setPedidoAbierto(null);
-    }
-
-    // Actualiza el stock en el Admin
-    await cargarProductos();
-
-    alert(
-      "Pedido eliminado y stock restaurado correctamente."
-    );
-  } finally {
-    setProcesandoPedido(null);
   }
-}
 
   // =========================
   // CARGAR IMÁGENES
@@ -613,6 +664,7 @@ function Admin() {
         () => {
           cargarPedidos();
           cargarProductos();
+          cargarEstadisticas();
         }
       )
       .subscribe();
@@ -632,6 +684,21 @@ function Admin() {
       )
       .subscribe();
 
+    const canalVisitas = supabase
+      .channel("visitas-cambios")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "Visitas",
+        },
+        () => {
+          cargarEstadisticas();
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(canalProductos);
       supabase.removeChannel(canalImagenes);
@@ -641,6 +708,7 @@ function Admin() {
       );
       supabase.removeChannel(canalPedidos);
       supabase.removeChannel(canalPedidoItems);
+      supabase.removeChannel(canalVisitas);
     };
   }, [sesion]);
 
@@ -1994,6 +2062,94 @@ function Admin() {
     }, [productos, busqueda]);
 
   // =========================
+  // DATOS DE ESTADÍSTICAS
+  // =========================
+
+  const totalVisitas = visitas.filter(
+    (v) => v.evento === "visita"
+  ).length;
+
+  const visitantesUnicos = new Set(
+    visitas
+      .filter(
+        (v) => v.evento === "visita"
+      )
+      .map((v) => v.session_id)
+  ).size;
+
+  const visitasCelular = visitas.filter(
+    (v) =>
+      v.evento === "visita" &&
+      v.dispositivo === "Celular"
+  ).length;
+
+  const visitasPC = visitas.filter(
+    (v) =>
+      v.evento === "visita" &&
+      v.dispositivo === "PC"
+  ).length;
+
+  const productosVistos = visitas.filter(
+    (v) => v.evento === "producto_visto"
+  ).length;
+
+  const agregadosCarrito = visitas.filter(
+    (v) => v.evento === "agregado_carrito"
+  ).length;
+
+  const checkouts = visitas.filter(
+    (v) => v.evento === "checkout"
+  ).length;
+
+  const pedidosRegistrados = visitas.filter(
+    (v) => v.evento === "pedido"
+  ).length;
+
+  const productosMasVistos = useMemo(() => {
+    const conteo: Record<string, number> = {};
+
+    visitas
+      .filter(
+        (v) =>
+          v.evento === "producto_visto" &&
+          v.producto_nombre
+      )
+      .forEach((v) => {
+        const nombre =
+          v.producto_nombre!;
+
+        conteo[nombre] =
+          (conteo[nombre] || 0) + 1;
+      });
+
+    return Object.entries(conteo)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+  }, [visitas]);
+
+  const visitasPorDia = useMemo(() => {
+    const conteo: Record<string, number> = {};
+
+    visitas
+      .filter(
+        (v) => v.evento === "visita"
+      )
+      .forEach((v) => {
+        const fecha =
+          new Date(v.fecha).toLocaleDateString(
+            "es-AR"
+          );
+
+        conteo[fecha] =
+          (conteo[fecha] || 0) + 1;
+      });
+
+    return Object.entries(conteo)
+      .reverse()
+      .slice(0, 7);
+  }, [visitas]);
+
+  // =========================
   // ESTILOS
   // =========================
 
@@ -2311,6 +2467,320 @@ function Admin() {
         </div>
 
         {/* =========================
+            ESTADÍSTICAS
+        ========================= */}
+
+        <div
+          style={{
+            background: "#fff",
+            borderRadius: "14px",
+            padding: "20px",
+            marginBottom: "25px",
+            boxShadow:
+              "0 4px 20px rgba(0,0,0,0.06)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent:
+                "space-between",
+              alignItems: "center",
+              gap: "10px",
+              flexWrap: "wrap",
+              marginBottom: "18px",
+            }}
+          >
+            <div>
+              <h2
+                style={{
+                  margin: 0,
+                  color: "#263d2d",
+                }}
+              >
+                Estadísticas de la página
+              </h2>
+
+              <p
+                style={{
+                  margin:
+                    "5px 0 0",
+                  color: "#666",
+                  fontSize: "14px",
+                }}
+              >
+                Visitas y comportamiento de tus clientes
+              </p>
+            </div>
+
+            <button
+              onClick={
+                cargarEstadisticas
+              }
+              disabled={
+                cargandoEstadisticas
+              }
+              style={{
+                ...buttonStyle,
+                background:
+                  "#e5eadf",
+                color:
+                  "#263d2d",
+              }}
+            >
+              {cargandoEstadisticas
+                ? "Actualizando..."
+                : "Actualizar"}
+            </button>
+          </div>
+
+          {cargandoEstadisticas ? (
+            <div
+              style={{
+                padding: "20px",
+                textAlign: "center",
+                color: "#666",
+              }}
+            >
+              Cargando estadísticas...
+            </div>
+          ) : (
+            <>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns:
+                    "repeat(auto-fit, minmax(160px, 1fr))",
+                  gap: "12px",
+                  marginBottom: "18px",
+                }}
+              >
+                {[
+                  {
+                    titulo: "Visitas",
+                    valor: totalVisitas,
+                  },
+                  {
+                    titulo: "Visitantes únicos",
+                    valor: visitantesUnicos,
+                  },
+                  {
+                    titulo: "Desde celular",
+                    valor: visitasCelular,
+                  },
+                  {
+                    titulo: "Desde PC",
+                    valor: visitasPC,
+                  },
+                  {
+                    titulo: "Productos vistos",
+                    valor: productosVistos,
+                  },
+                  {
+                    titulo: "Agregados al carrito",
+                    valor: agregadosCarrito,
+                  },
+                  {
+                    titulo: "Checkouts",
+                    valor: checkouts,
+                  },
+                  {
+                    titulo: "Pedidos",
+                    valor: pedidosRegistrados,
+                  },
+                ].map(
+                  (estadistica) => (
+                    <div
+                      key={
+                        estadistica.titulo
+                      }
+                      style={{
+                        background:
+                          "#f8f8f4",
+                        borderRadius:
+                          "10px",
+                        padding:
+                          "15px",
+                        border:
+                          "1px solid #e5e5df",
+                      }}
+                    >
+                      <div
+                        style={{
+                          color:
+                            "#666",
+                          fontSize:
+                            "13px",
+                          marginBottom:
+                            "6px",
+                        }}
+                      >
+                        {
+                          estadistica.titulo
+                        }
+                      </div>
+
+                      <strong
+                        style={{
+                          color:
+                            "#263d2d",
+                          fontSize:
+                            "25px",
+                        }}
+                      >
+                        {
+                          estadistica.valor
+                        }
+                      </strong>
+                    </div>
+                  )
+                )}
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns:
+                    "repeat(auto-fit, minmax(260px, 1fr))",
+                  gap: "15px",
+                }}
+              >
+                <div
+                  style={{
+                    background:
+                      "#f8f8f4",
+                    borderRadius:
+                      "10px",
+                    padding:
+                      "15px",
+                  }}
+                >
+                  <h3
+                    style={{
+                      marginTop: 0,
+                      color:
+                        "#263d2d",
+                    }}
+                  >
+                    Productos más vistos
+                  </h3>
+
+                  {productosMasVistos.length ===
+                  0 ? (
+                    <p
+                      style={{
+                        color:
+                          "#777",
+                      }}
+                    >
+                      Todavía no hay datos.
+                    </p>
+                  ) : (
+                    productosMasVistos.map(
+                      ([nombre, cantidad], index) => (
+                        <div
+                          key={nombre}
+                          style={{
+                            display:
+                              "flex",
+                            justifyContent:
+                              "space-between",
+                            gap: "10px",
+                            padding:
+                              "8px 0",
+                            borderBottom:
+                              index <
+                              productosMasVistos.length -
+                                1
+                                ? "1px solid #ddd"
+                                : "none",
+                          }}
+                        >
+                          <span>
+                            {nombre}
+                          </span>
+
+                          <strong
+                            style={{
+                              color:
+                                "#263d2d",
+                            }}
+                          >
+                            {cantidad}
+                          </strong>
+                        </div>
+                      )
+                    )
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    background:
+                      "#f8f8f4",
+                    borderRadius:
+                      "10px",
+                    padding:
+                      "15px",
+                  }}
+                >
+                  <h3
+                    style={{
+                      marginTop: 0,
+                      color:
+                        "#263d2d",
+                    }}
+                  >
+                    Visitas últimos días
+                  </h3>
+
+                  {visitasPorDia.length ===
+                  0 ? (
+                    <p
+                      style={{
+                        color:
+                          "#777",
+                      }}
+                    >
+                      Todavía no hay datos.
+                    </p>
+                  ) : (
+                    visitasPorDia.map(
+                      ([fecha, cantidad]) => (
+                        <div
+                          key={fecha}
+                          style={{
+                            display:
+                              "flex",
+                            justifyContent:
+                              "space-between",
+                            padding:
+                              "7px 0",
+                          }}
+                        >
+                          <span>
+                            {fecha}
+                          </span>
+
+                          <strong
+                            style={{
+                              color:
+                                "#263d2d",
+                            }}
+                          >
+                            {cantidad}
+                          </strong>
+                        </div>
+                      )
+                    )
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* =========================
             PEDIDOS
         ========================= */}
 
@@ -2366,6 +2836,7 @@ function Admin() {
               onClick={() => {
                 cargarPedidos();
                 cargarProductos();
+                cargarEstadisticas();
               }}
               disabled={
                 cargandoPedidos
@@ -2492,478 +2963,417 @@ function Admin() {
                                     "18px",
                                 }}
                               >
-                                Pedido #
-                                {
-                                  pedido.id
-                                }
+                                Pedido #{pedido.id}
                               </strong>
-
-                              <span
-                                style={{
-                                  padding:
-                                    "5px 10px",
-                                  borderRadius:
-                                    "20px",
-                                  fontSize:
-                                    "12px",
-                                  fontWeight:
-                                    700,
-                                  background:
-                                    pedido.estado ===
-                                    "pendiente"
-                                      ? "#fff2c2"
-                                      : pedido.estado ===
-                                        "confirmado"
-                                      ? "#dcefdc"
-                                      : "#f1dede",
-                                  color:
-                                    pedido.estado ===
-                                    "pendiente"
-                                      ? "#856404"
-                                      : pedido.estado ===
-                                        "confirmado"
-                                      ? "#286228"
-                                      : "#9b3333",
-                                }}
-                              >
-                                {pedido.estado ===
-                                "pendiente"
-                                  ? "Pendiente"
-                                  : pedido.estado ===
-                                    "confirmado"
-                                  ? "Confirmado"
-                                  : "Cancelado"}
-                              </span>
                             </div>
 
-                            <p
+                            <div
                               style={{
-                                margin:
-                                  "7px 0 0",
+                                marginTop:
+                                  "8px",
                                 fontSize:
                                   "13px",
                                 color:
-                                  "#777",
+                                  "#555",
                               }}
                             >
-                              {new Date(
-                                pedido.fecha
-                              ).toLocaleString(
-                                "es-AR"
-                              )}
-                            </p>
-                          </div>
+                              <div>
+                                <strong>
+                                  Fecha:
+                                </strong>{" "}
+                                {new Date(
+                                  pedido.fecha
+                                ).toLocaleString(
+                                  "es-AR"
+                                )}
+                              </div>
 
-                          <strong
-                            style={{
-                              color:
-                                "#263d2d",
-                              fontSize:
-                                "20px",
-                            }}
-                          >
-                            $
-                            {Number(
-                              pedido.total
-                            ).toLocaleString(
-                              "es-AR"
-                            )}
-                          </strong>
-                        </div>
-
-                        <div
-                          style={{
-                            display:
-                              "grid",
-                            gridTemplateColumns:
-                              "repeat(auto-fit, minmax(220px, 1fr))",
-                            gap: "10px",
-                            marginTop:
-                              "15px",
-                            fontSize:
-                              "14px",
-                          }}
-                        >
-                          <div>
-                            <strong>
-                              Cliente:
-                            </strong>{" "}
-                            {
-                              pedido.nombre
-                            }{" "}
-                            {
-                              pedido.apellido
-                            }
-                          </div>
-
-                          <div>
-                            <strong>
-                              Teléfono:
-                            </strong>{" "}
-                            {
-                              pedido.telefono
-                            }
-                          </div>
-
-                          <div>
-                            <strong>
-                              Email:
-                            </strong>{" "}
-                            {
-                              pedido.email
-                            }
-                          </div>
-
-                          <div>
-                            <strong>
-                              Dirección:
-                            </strong>{" "}
-                            {
-                              pedido.direccion
-                            }
-                          </div>
-
-                          <div>
-                            <strong>
-                              C.P.:
-                            </strong>{" "}
-                            {
-                              pedido.codigo_postal
-                            }
-                          </div>
-                        </div>
-
-                        <div
-                          style={{
-                            display:
-                              "flex",
-                            gap: "8px",
-                            flexWrap:
-                              "wrap",
-                            marginTop:
-                              "15px",
-                          }}
-                        >
-                          <button
-                            onClick={() =>
-                              setPedidoAbierto(
-                                abierto
-                                  ? null
-                                  : pedido.id
-                              )
-                            }
-                            style={{
-                              ...buttonStyle,
-                              background:
-                                "#e5eadf",
-                              color:
-                                "#263d2d",
-                            }}
-                          >
-                            {abierto
-                              ? "Ocultar detalle"
-                              : "Ver detalle"}
-                          </button>
-
-                          {pedido.estado ===
-                            "pendiente" && (
-                            <>
-                              <button
-                                onClick={() =>
-                                  confirmarPedido(
-                                    pedido.id
-                                  )
+                              <div>
+                                <strong>
+                                  Cliente:
+                                </strong>{" "}
+                                {
+                                  pedido.nombre
+                                }{" "}
+                                {
+                                  pedido.apellido
                                 }
-                                disabled={
-                                  procesando
-                                }
-                                style={{
-                                  ...buttonStyle,
-                                  background:
-                                    "#263d2d",
-                                  color:
-                                    "#fff",
-                                  opacity:
-                                    procesando
-                                      ? 0.6
-                                      : 1,
-                                }}
-                              >
-                                {procesando
-                                  ? "Procesando..."
-                                  : "Confirmar"}
-                              </button>
+                              </div>
 
-                              <button
-                                onClick={() =>
-                                  cancelarPedido(
-                                    pedido.id
-                                  )
+                              <div>
+                                <strong>
+                                  Teléfono:
+                                </strong>{" "}
+                                {
+                                  pedido.telefono
                                 }
-                                disabled={
-                                  procesando
+                              </div>
+
+                              <div>
+                                <strong>
+                                  Email:
+                                </strong>{" "}
+                                {
+                                  pedido.email
                                 }
-                                style={{
-                                  ...buttonStyle,
-                                  background:
-                                    "#f1dede",
-                                  color:
-                                    "#9b3333",
-                                  opacity:
-                                    procesando
-                                      ? 0.6
-                                      : 1,
-                                }}
-                              >
-                                Cancelar
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
+                              </div>
 
-                      {abierto && (
-                        <div
-                          style={{
-                            borderTop:
-                              "1px solid #ddd",
-                            padding:
-                              "15px",
-                            background:
-                              "#f8f8f4",
-                          }}
-                        >
-                          <h3
-                            style={{
-                              margin:
-                                "0 0 12px",
-                              color:
-                                "#263d2d",
-                              fontSize:
-                                "16px",
-                            }}
-                          >
-                            Productos del pedido
-                          </h3>
+                              <div>
+                                <strong>
+                                  Dirección:
+                                </strong>{" "}
+                                {
+                                  pedido.direccion
+                                }
+                              </div>
 
-                          {items.length ===
-                          0 ? (
-                            <p
-                              style={{
-                                color:
-                                  "#777",
-                                fontSize:
-                                  "13px",
-                              }}
-                            >
-                              No se encontraron
-                              productos
-                              para este
-                              pedido.
-                            </p>
-                          ) : (
+                              <div>
+                                <strong>
+                                  C.P.:
+                                </strong>{" "}
+                                {
+                                  pedido.codigo_postal
+                                }
+                              </div>
+                            </div>
+
                             <div
                               style={{
                                 display:
                                   "flex",
-                                flexDirection:
-                                  "column",
-                                gap: "10px",
+                                gap: "8px",
+                                flexWrap:
+                                  "wrap",
+                                marginTop:
+                                  "15px",
                               }}
                             >
-                              {items.map(
-                                (item) => (
-                                  <div
-                                    key={
-                                      item.id
+                              <button
+                                onClick={() =>
+                                  setPedidoAbierto(
+                                    abierto
+                                      ? null
+                                      : pedido.id
+                                  )
+                                }
+                                style={{
+                                  ...buttonStyle,
+                                  background:
+                                    "#e5eadf",
+                                  color:
+                                    "#263d2d",
+                                }}
+                              >
+                                {abierto
+                                  ? "Ocultar detalle"
+                                  : "Ver detalle"}
+                              </button>
+
+                              {pedido.estado ===
+                                "pendiente" && (
+                                <>
+                                  <button
+                                    onClick={() =>
+                                      confirmarPedido(
+                                        pedido.id
+                                      )
+                                    }
+                                    disabled={
+                                      procesando
                                     }
                                     style={{
-                                      display:
-                                        "flex",
-                                      alignItems:
-                                        "center",
-                                      gap: "12px",
+                                      ...buttonStyle,
                                       background:
+                                        "#263d2d",
+                                      color:
                                         "#fff",
-                                      padding:
-                                        "10px",
-                                      borderRadius:
-                                        "10px",
-                                      border:
-                                        "1px solid #e1e1e1",
+                                      opacity:
+                                        procesando
+                                          ? 0.6
+                                          : 1,
                                     }}
                                   >
-                                    <div
-                                      style={{
-                                        width:
-                                          "65px",
-                                        height:
-                                          "65px",
-                                        flexShrink:
-                                          0,
-                                        borderRadius:
-                                          "8px",
-                                        overflow:
-                                          "hidden",
-                                        background:
-                                          "#eee",
-                                        display:
-                                          "flex",
-                                        alignItems:
-                                          "center",
-                                        justifyContent:
-                                          "center",
-                                      }}
-                                    >
-                                      {item.imagen ? (
-                                        <img
-                                          src={
-                                            item.imagen
-                                          }
-                                          alt={
-                                            item.nombre_producto
-                                          }
-                                          style={{
-                                            width:
-                                              "100%",
-                                            height:
-                                              "100%",
-                                            objectFit:
-                                              "cover",
-                                          }}
-                                        />
-                                      ) : (
-                                        <span
-                                          style={{
-                                            color:
-                                              "#999",
-                                            fontSize:
-                                              "10px",
-                                          }}
-                                        >
-                                          Sin imagen
-                                        </span>
-                                      )}
-                                    </div>
+                                    {procesando
+                                      ? "Procesando..."
+                                      : "Confirmar"}
+                                  </button>
 
-                                    <div
-                                      style={{
-                                        flex: 1,
-                                        minWidth:
-                                          0,
-                                      }}
-                                    >
-                                      <strong
-                                        style={{
-                                          color:
-                                            "#263d2d",
-                                          display:
-                                            "block",
-                                        }}
-                                      >
-                                        {
-                                          item.nombre_producto
-                                        }
-                                      </strong>
-
-                                      {(item.talle ||
-                                        item.color) && (
-                                        <p
-                                          style={{
-                                            margin:
-                                              "4px 0",
-                                            fontSize:
-                                              "12px",
-                                            color:
-                                              "#666",
-                                          }}
-                                        >
-                                          {item.talle &&
-                                            `Talle: ${item.talle}`}
-                                          {item.talle &&
-                                            item.color &&
-                                            " • "}
-                                          {item.color &&
-                                            `Color: ${item.color}`}
-                                        </p>
-                                      )}
-
-                                      <p
-                                        style={{
-                                          margin:
-                                            0,
-                                          fontSize:
-                                            "13px",
-                                          color:
-                                            "#555",
-                                        }}
-                                      >
-                                        Cantidad:{" "}
-                                        {
-                                          item.cantidad
-                                        }{" "}
-                                        × $
-                                        {Number(
-                                          item.precio_unitario
-                                        ).toLocaleString(
-                                          "es-AR"
-                                        )}
-                                      </p>
-                                    </div>
-
-                                    <strong
-                                      style={{
-                                        color:
-                                          "#263d2d",
-                                        whiteSpace:
-                                          "nowrap",
-                                      }}
-                                    >
-                                      $
-                                      {Number(
-                                        item.subtotal
-                                      ).toLocaleString(
-                                        "es-AR"
-                                      )}
-                                    </strong>
-                                  </div>
-                                )
+                                  <button
+                                    onClick={() =>
+                                      cancelarPedido(
+                                        pedido.id
+                                      )
+                                    }
+                                    disabled={
+                                      procesando
+                                    }
+                                    style={{
+                                      ...buttonStyle,
+                                      background:
+                                        "#f1dede",
+                                      color:
+                                        "#9b3333",
+                                      opacity:
+                                        procesando
+                                          ? 0.6
+                                          : 1,
+                                    }}
+                                  >
+                                    Cancelar
+                                  </button>
+                                </>
                               )}
                             </div>
-                          )}
+                          </div>
 
-                          <div
-                            style={{
-                              display:
-                                "flex",
-                              justifyContent:
-                                "flex-end",
-                              marginTop:
-                                "15px",
-                              paddingTop:
-                                "12px",
-                              borderTop:
-                                "1px solid #ddd",
-                            }}
-                          >
-                            <strong
+                          {abierto && (
+                            <div
                               style={{
-                                fontSize:
-                                  "18px",
-                                color:
-                                  "#263d2d",
+                                borderTop:
+                                  "1px solid #ddd",
+                                padding:
+                                  "15px",
+                                background:
+                                  "#f8f8f4",
+                                width:
+                                  "100%",
+                                boxSizing:
+                                  "border-box",
                               }}
                             >
-                              Total: $
-                              {Number(
-                                pedido.total
-                              ).toLocaleString(
-                                "es-AR"
+                              <h3
+                                style={{
+                                  margin:
+                                    "0 0 12px",
+                                  color:
+                                    "#263d2d",
+                                  fontSize:
+                                    "16px",
+                                }}
+                              >
+                                Productos del pedido
+                              </h3>
+
+                              {items.length ===
+                              0 ? (
+                                <p
+                                  style={{
+                                    color:
+                                      "#777",
+                                    fontSize:
+                                      "13px",
+                                  }}
+                                >
+                                  No se encontraron
+                                  productos
+                                  para este
+                                  pedido.
+                                </p>
+                              ) : (
+                                <div
+                                  style={{
+                                    display:
+                                      "flex",
+                                    flexDirection:
+                                      "column",
+                                    gap: "10px",
+                                  }}
+                                >
+                                  {items.map(
+                                    (item) => (
+                                      <div
+                                        key={
+                                          item.id
+                                        }
+                                        style={{
+                                          display:
+                                            "flex",
+                                          alignItems:
+                                            "center",
+                                          gap: "12px",
+                                          background:
+                                            "#fff",
+                                          padding:
+                                            "10px",
+                                          borderRadius:
+                                            "10px",
+                                          border:
+                                            "1px solid #e1e1e1",
+                                        }}
+                                      >
+                                        <div
+                                          style={{
+                                            width:
+                                              "65px",
+                                            height:
+                                              "65px",
+                                            flexShrink:
+                                              0,
+                                            borderRadius:
+                                              "8px",
+                                            overflow:
+                                              "hidden",
+                                            background:
+                                              "#eee",
+                                            display:
+                                              "flex",
+                                            alignItems:
+                                              "center",
+                                            justifyContent:
+                                              "center",
+                                          }}
+                                        >
+                                          {item.imagen ? (
+                                            <img
+                                              src={
+                                                item.imagen
+                                              }
+                                              alt={
+                                                item.nombre_producto
+                                              }
+                                              style={{
+                                                width:
+                                                  "100%",
+                                                height:
+                                                  "100%",
+                                                objectFit:
+                                                  "cover",
+                                              }}
+                                            />
+                                          ) : (
+                                            <span
+                                              style={{
+                                                color:
+                                                  "#999",
+                                                fontSize:
+                                                  "10px",
+                                              }}
+                                            >
+                                              Sin imagen
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        <div
+                                          style={{
+                                            flex: 1,
+                                            minWidth:
+                                              0,
+                                          }}
+                                        >
+                                          <strong
+                                            style={{
+                                              color:
+                                                "#263d2d",
+                                              display:
+                                                "block",
+                                            }}
+                                          >
+                                            {
+                                              item.nombre_producto
+                                            }
+                                          </strong>
+
+                                          {(item.talle ||
+                                            item.color) && (
+                                            <p
+                                              style={{
+                                                margin:
+                                                  "4px 0",
+                                                fontSize:
+                                                  "12px",
+                                                color:
+                                                  "#666",
+                                              }}
+                                            >
+                                              {item.talle &&
+                                                `Talle: ${item.talle}`}
+                                              {item.talle &&
+                                                item.color &&
+                                                " • "}
+                                              {item.color &&
+                                                `Color: ${item.color}`}
+                                            </p>
+                                          )}
+
+                                          <p
+                                            style={{
+                                              margin:
+                                                0,
+                                              fontSize:
+                                                "13px",
+                                              color:
+                                                "#555",
+                                            }}
+                                          >
+                                            Cantidad:{" "}
+                                            {
+                                              item.cantidad
+                                            }{" "}
+                                            × $
+                                            {Number(
+                                              item.precio_unitario
+                                            ).toLocaleString(
+                                              "es-AR"
+                                            )}
+                                          </p>
+                                        </div>
+
+                                        <strong
+                                          style={{
+                                            color:
+                                              "#263d2d",
+                                            whiteSpace:
+                                              "nowrap",
+                                          }}
+                                        >
+                                          $
+                                          {Number(
+                                            item.subtotal
+                                          ).toLocaleString(
+                                            "es-AR"
+                                          )}
+                                        </strong>
+                                      </div>
+                                    )
+                                  )}
+                                </div>
                               )}
-                            </strong>
-                          </div>
+
+                              <div
+                                style={{
+                                  display:
+                                    "flex",
+                                  justifyContent:
+                                    "flex-end",
+                                  marginTop:
+                                    "15px",
+                                  paddingTop:
+                                    "12px",
+                                  borderTop:
+                                    "1px solid #ddd",
+                                }}
+                              >
+                                <strong
+                                  style={{
+                                    fontSize:
+                                      "18px",
+                                    color:
+                                      "#263d2d",
+                                  }}
+                                >
+                                  Total: $
+                                  {Number(
+                                    pedido.total
+                                  ).toLocaleString(
+                                    "es-AR"
+                                  )}
+                                </strong>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </div>
                   );
                 }
@@ -4868,13 +5278,13 @@ function Admin() {
                                                 v
                                               ) =>
                                                 (
-                                                  v.id &&
-                                                  variante.id &&
-                                                  v.id ===
-                                                    variante.id
-                                                ) ||
-                                                v ===
-                                                  variante
+                                                  (v.id &&
+                                                    variante.id &&
+                                                    v.id ===
+                                                      variante.id) ||
+                                                  v ===
+                                                    variante
+                                                )
                                                   ? {
                                                       ...v,
                                                       precio,

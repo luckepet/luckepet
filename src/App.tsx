@@ -52,6 +52,81 @@ type ItemCarrito = Producto & {
 
 const WHATSAPP_NUMERO = '5492664015639'
 
+// =====================================================
+// ESTADÍSTICAS
+// =====================================================
+
+const obtenerSessionId = () => {
+  const clave = 'luckepet_session_id'
+
+  let sessionId =
+    localStorage.getItem(clave)
+
+  if (!sessionId) {
+    sessionId =
+      crypto.randomUUID()
+
+    localStorage.setItem(
+      clave,
+      sessionId
+    )
+  }
+
+  return sessionId
+}
+
+const obtenerDispositivo = () => {
+  return window.innerWidth <= 768
+    ? 'Celular'
+    : 'PC'
+}
+
+const registrarEvento = async (
+  evento: string,
+  producto?: Producto | null
+) => {
+  try {
+    const sessionId =
+      obtenerSessionId()
+
+    const dispositivo =
+      obtenerDispositivo()
+
+    const { error } =
+      await supabase
+        .from('Visitas')
+        .insert({
+          session_id:
+            sessionId,
+
+          evento,
+
+          producto_id:
+            producto?.id || null,
+
+          producto_nombre:
+            producto?.name || null,
+
+          dispositivo,
+
+          fecha:
+            new Date().toISOString()
+        })
+
+    if (error) {
+      console.error(
+        'ERROR REGISTRANDO ESTADÍSTICA:',
+        error
+      )
+    }
+  } catch (error) {
+    console.error(
+      'ERROR ESTADÍSTICAS:',
+      error
+    )
+  }
+}
+
 function App() {
   const [productos, setProductos] = useState<Producto[]>([])
 
@@ -116,13 +191,9 @@ function App() {
   const [pedidoCreado, setPedidoCreado] =
     useState(false)
 
-  // URL de WhatsApp del pedido recién creado.
-  // Se guarda para abrir WhatsApp DESPUÉS
-  // de mostrar el cartel de gracias.
   const [urlWhatsAppPedido, setUrlWhatsAppPedido] =
     useState('')
 
-  // Indica si el email fue enviado correctamente.
   const [emailEnviado, setEmailEnviado] =
     useState(false)
 
@@ -138,6 +209,14 @@ function App() {
       telefono: '',
       email: ''
     })
+
+  // =====================================================
+  // REGISTRAR VISITA
+  // =====================================================
+
+  useEffect(() => {
+    registrarEvento('visita')
+  }, [])
 
   // =====================================================
   // NORMALIZAR URL
@@ -586,6 +665,11 @@ function App() {
   const abrirProducto = async (
     producto: Producto
   ) => {
+    registrarEvento(
+      'producto_visto',
+      producto
+    )
+
     window.history.pushState(
       {
         luckepetProducto: true,
@@ -839,6 +923,11 @@ function App() {
   const agregarAlCarrito = (
     producto: ItemCarrito
   ) => {
+    registrarEvento(
+      'agregado_carrito',
+      producto
+    )
+
     setCarrito(
       carritoActual => {
         const cantidadActual =
@@ -1034,6 +1123,10 @@ function App() {
       return
     }
 
+    registrarEvento(
+      'checkout'
+    )
+
     setErrorPedido('')
     setPedidoCreado(false)
     setUrlWhatsAppPedido('')
@@ -1207,14 +1300,6 @@ function App() {
 
       // ============================================
       // CREAR PEDIDO
-      //
-      // crear_pedido() hace:
-      //
-      // 1. Crea Pedidos como pendiente
-      // 2. Crea PedidoItems
-      // 3. Reserva stock
-      //
-      // NO descuenta stock real todavía.
       // ============================================
 
       const {
@@ -1264,14 +1349,15 @@ function App() {
       )
 
       // ============================================
-      // ENVIAR EMAIL AUTOMÁTICO
-      //
-      // La Edge Function busca el pedido
-      // directamente en Supabase y manda
-      // el mail completo al cliente.
-      //
-      // Si el mail falla, NO se cancela
-      // el pedido porque ya fue creado.
+      // ESTADÍSTICA: PEDIDO
+      // ============================================
+
+      registrarEvento(
+        'pedido'
+      )
+
+      // ============================================
+      // ENVIAR EMAIL
       // ============================================
 
       const {
@@ -1297,7 +1383,7 @@ function App() {
       }
 
       // ============================================
-      // PREPARAR MENSAJE DE WHATSAPP
+      // PREPARAR WHATSAPP
       // ============================================
 
       const numeroPedido =
@@ -1324,13 +1410,6 @@ function App() {
           mensajeWhatsApp
         )}`
 
-      // ============================================
-      // GUARDAR URL DE WHATSAPP
-      //
-      // NO abrimos WhatsApp todavía.
-      // Primero mostramos el cartel de gracias.
-      // ============================================
-
       setUrlWhatsAppPedido(
         urlWhatsApp
       )
@@ -1345,8 +1424,6 @@ function App() {
 
       setMostrarCarrito(false)
 
-      // Actualizar productos para mostrar
-      // el stock disponible luego de reservar.
       await cargarProductos()
 
       setDatosCliente({
@@ -1755,8 +1832,6 @@ function App() {
                   enviar el pedido.
                 </p>
 
-                {/* RESUMEN */}
-
                 <div className="checkout-resumen">
                   <strong>
                     Resumen del pedido
@@ -1814,8 +1889,6 @@ function App() {
                     </strong>
                   </div>
                 </div>
-
-                {/* DATOS */}
 
                 <div className="checkout-grid">
                   <label>
@@ -2331,7 +2404,6 @@ function App() {
 
           <div className="producto-overlay">
             <div className="producto-detalle">
-              {/* CABECERA */}
 
               <div className="producto-detalle-header">
                 <button
@@ -2357,9 +2429,7 @@ function App() {
                 </button>
               </div>
 
-              {/* =================================================
-                  GALERÍA
-              ================================================= */}
+              {/* GALERÍA */}
 
               <div
                 className="producto-galeria"
@@ -2452,9 +2522,7 @@ function App() {
                 )}
               </div>
 
-              {/* =================================================
-                  MINIATURAS
-              ================================================= */}
+              {/* MINIATURAS */}
 
               {imagenesProducto.length >
                 1 && (
@@ -2494,9 +2562,7 @@ function App() {
                 </div>
               )}
 
-              {/* =================================================
-                  INFORMACIÓN
-              ================================================= */}
+              {/* INFORMACIÓN */}
 
               <div className="producto-info-detalle">
                 <div className="producto-categoria">
@@ -2523,8 +2589,6 @@ function App() {
                   )}
                 </div>
 
-                {/* DESCRIPCIÓN */}
-
                 {productoSeleccionado.description && (
                   <div className="producto-descripcion">
                     <h3>
@@ -2539,9 +2603,7 @@ function App() {
                   </div>
                 )}
 
-                {/* =================================================
-                    TALLES
-                ================================================= */}
+                {/* TALLES */}
 
                 {productoSeleccionado.tiene_talle && (
                   <div className="selector-producto">
@@ -2591,9 +2653,7 @@ function App() {
                   </div>
                 )}
 
-                {/* =================================================
-                    COLORES
-                ================================================= */}
+                {/* COLORES */}
 
                 {productoSeleccionado.tiene_talle &&
                   talleSeleccionado &&
@@ -2643,9 +2703,7 @@ function App() {
                     </div>
                   )}
 
-                {/* =================================================
-                    STOCK
-                ================================================= */}
+                {/* STOCK */}
 
                 <div className="producto-stock">
                   <span className="stock-punto"></span>
@@ -2660,9 +2718,7 @@ function App() {
                 </div>
               </div>
 
-              {/* =================================================
-                  BOTÓN CARRITO
-              ================================================= */}
+              {/* BOTÓN CARRITO */}
 
               <div className="producto-footer">
                 <button
