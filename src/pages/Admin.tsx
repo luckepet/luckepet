@@ -77,6 +77,10 @@ type Visita = {
   fecha: string;
 };
 
+type PeriodoEstadisticas = "hoy" | "7dias" | "30dias";
+
+type Seccion = { id: number; nombre: string; orden: number; activa: boolean; };
+
 const productoVacio = {
   name: "",
   description: "",
@@ -88,7 +92,7 @@ const productoVacio = {
   talles: [] as string[],
 };
 
-const categoriasDisponibles = [
+const categoriasBase = [
   "Perros",
   "Gatos",
   "Higiene",
@@ -160,12 +164,123 @@ function Admin() {
   const [nuevoTalleEditando, setNuevoTalleEditando] = useState("");
 
   // ============================================================
+  // SECCIONES / CATEGORÍAS DINÁMICAS
+  // ============================================================
+  const [secciones, setSecciones] = useState<Seccion[]>([]);
+  const [nuevaCategoria, setNuevaCategoria] = useState("");
+  const [mostrarSecciones, setMostrarSecciones] = useState(false);
+  const [seccionEditando, setSeccionEditando] = useState<number | null>(null);
+  const [nombreSeccionEditando, setNombreSeccionEditando] = useState("");
+  const [guardandoSeccion, setGuardandoSeccion] = useState(false);
+
+  const categoriasDisponibles = useMemo(() => {
+    const categoriasDeProductos = productos.flatMap((producto) =>
+      Array.isArray(producto.category) ? producto.category : producto.category ? [producto.category] : []
+    );
+    return Array.from(new Set([
+      ...categoriasBase,
+      ...secciones.map((seccion) => seccion.nombre),
+      ...categoriasDeProductos,
+    ])).filter(Boolean);
+  }, [productos, secciones]);
+
+  async function cargarSecciones() {
+    const { data, error } = await supabase.from("Secciones").select("id, nombre, orden, activa").order("orden", { ascending: true }).order("id", { ascending: true });
+    if (error) { console.error("ERROR CARGANDO SECCIONES:", error); return; }
+    const existentes = (data || []) as Seccion[];
+    const nombres = new Set(existentes.map((s) => s.nombre.toLowerCase()));
+    let siguienteOrden = existentes.reduce((m, s) => Math.max(m, Number(s.orden) || 0), 0) + 1;
+    for (const nombre of categoriasBase) {
+      if (nombres.has(nombre.toLowerCase())) continue;
+      const { data: creada, error: errorCreando } = await supabase.from("Secciones").insert({ nombre, orden: siguienteOrden, activa: true }).select("id, nombre, orden, activa").single();
+      if (errorCreando) { console.error(`ERROR CREANDO SECCIÓN ${nombre}:`, errorCreando); continue; }
+      if (creada) { existentes.push(creada as Seccion); nombres.add(nombre.toLowerCase()); siguienteOrden++; }
+    }
+    existentes.sort((a,b) => Number(a.orden)-Number(b.orden) || Number(a.id)-Number(b.id));
+    setSecciones(existentes);
+  }
+
+  async function agregarCategoria() {
+    const nombre = nuevaCategoria.trim().replace(/\s+/g, " ");
+    if (!nombre) { alert("Escribí un nombre para la sección."); return; }
+    if (secciones.some((s) => s.nombre.toLowerCase() === nombre.toLowerCase())) { alert("Esa sección ya existe."); return; }
+    setGuardandoSeccion(true);
+    try {
+      const siguienteOrden = secciones.reduce((m,s) => Math.max(m, Number(s.orden)||0), 0) + 1;
+      const { error } = await supabase.from("Secciones").insert({ nombre, orden: siguienteOrden, activa: true });
+      if (error) { console.error("ERROR AGREGANDO SECCIÓN:", error); alert(`No se pudo agregar la sección:\n\n${error.message}`); return; }
+      setNuevaCategoria(""); await cargarSecciones();
+    } finally { setGuardandoSeccion(false); }
+  }
+
+  function iniciarEdicionSeccion(seccion: Seccion) { setSeccionEditando(seccion.id); setNombreSeccionEditando(seccion.nombre); }
+  function cancelarEdicionSeccion() { setSeccionEditando(null); setNombreSeccionEditando(""); }
+
+  async function guardarEdicionSeccion(seccion: Seccion) {
+    const nuevoNombre = nombreSeccionEditando.trim().replace(/\s+/g, " ");
+    if (!nuevoNombre) { alert("El nombre de la sección no puede estar vacío."); return; }
+    if (secciones.some((s) => s.id !== seccion.id && s.nombre.toLowerCase() === nuevoNombre.toLowerCase())) { alert("Ya existe otra sección con ese nombre."); return; }
+    setGuardandoSeccion(true);
+    try {
+      const nombreAnterior = seccion.nombre;
+      const { error } = await supabase.from("Secciones").update({ nombre: nuevoNombre }).eq("id", seccion.id);
+      if (error) { console.error("ERROR EDITANDO SECCIÓN:", error); alert(`No se pudo editar la sección:\n\n${error.message}`); return; }
+      const afectados = productos.filter((p) => (Array.isArray(p.category) ? p.category : p.category ? [p.category] : []).includes(nombreAnterior));
+      for (const producto of afectados) {
+        const categorias = (Array.isArray(producto.category) ? producto.category : producto.category ? [producto.category] : []).map((c) => c === nombreAnterior ? nuevoNombre : c);
+        const { error: errorProducto } = await supabase.from("Productos").update({ category: categorias }).eq("id", producto.id);
+        if (errorProducto) console.error(`ERROR ACTUALIZANDO CATEGORÍA DEL PRODUCTO ${producto.id}:`, errorProducto);
+      }
+      cancelarEdicionSeccion(); await cargarSecciones(); await cargarProductos(); alert("Sección editada correctamente.");
+    } finally { setGuardandoSeccion(false); }
+  }
+
+  async function alternarActivaSeccion(seccion: Seccion) {
+    setGuardandoSeccion(true);
+    try {
+      const { error } = await supabase.from("Secciones").update({ activa: !seccion.activa }).eq("id", seccion.id);
+      if (error) { console.error("ERROR CAMBIANDO ESTADO DE SECCIÓN:", error); alert(`No se pudo cambiar el estado:\n\n${error.message}`); return; }
+      await cargarSecciones();
+    } finally { setGuardandoSeccion(false); }
+  }
+
+  async function eliminarCategoria(seccion: Seccion) {
+    const usados = productos.filter((p) => (Array.isArray(p.category) ? p.category : p.category ? [p.category] : []).includes(seccion.nombre));
+    if (usados.length > 0) { alert(`No se puede eliminar "${seccion.nombre}" porque hay ${usados.length} producto(s) asignado(s). Primero quitá esa sección de esos productos.`); return; }
+    if (!window.confirm(`¿Eliminar la sección "${seccion.nombre}"?`)) return;
+    setGuardandoSeccion(true);
+    try {
+      const { error } = await supabase.from("Secciones").delete().eq("id", seccion.id);
+      if (error) { console.error("ERROR ELIMINANDO SECCIÓN:", error); alert(`No se pudo eliminar la sección:\n\n${error.message}`); return; }
+      await cargarSecciones();
+    } finally { setGuardandoSeccion(false); }
+  }
+
+  async function moverSeccion(seccion: Seccion, direccion: -1 | 1) {
+    const ordenadas = [...secciones].sort((a,b) => Number(a.orden)-Number(b.orden) || Number(a.id)-Number(b.id));
+    const indice = ordenadas.findIndex((s) => s.id === seccion.id); const nuevoIndice = indice + direccion;
+    if (indice < 0 || nuevoIndice < 0 || nuevoIndice >= ordenadas.length) return;
+    const otra = ordenadas[nuevoIndice]; setGuardandoSeccion(true);
+    try {
+      const { error: e1 } = await supabase.from("Secciones").update({ orden: otra.orden }).eq("id", seccion.id); if (e1) throw e1;
+      const { error: e2 } = await supabase.from("Secciones").update({ orden: seccion.orden }).eq("id", otra.id); if (e2) throw e2;
+      await cargarSecciones();
+    } catch (error) { console.error("ERROR CAMBIANDO ORDEN DE SECCIÓN:", error); alert(`No se pudo cambiar el orden:\n\n${error instanceof Error ? error.message : "Error desconocido"}`); }
+    finally { setGuardandoSeccion(false); }
+  }
+
+  useEffect(() => { cargarSecciones(); }, []);
+
+  // ============================================================
   // ESTADÍSTICAS
   // ============================================================
 
   const [visitas, setVisitas] = useState<Visita[]>([]);
   const [cargandoEstadisticas, setCargandoEstadisticas] =
     useState(false);
+
+  const [periodoEstadisticas, setPeriodoEstadisticas] =
+    useState<PeriodoEstadisticas>("7dias");
 
   // ============================================================
   // PEDIDOS
@@ -180,6 +295,20 @@ function Admin() {
   const [procesandoPedido, setProcesandoPedido] = useState<number | null>(
     null
   );
+  const [seccionAbierta, setSeccionAbierta] =
+  useState<"productos" | "estadisticas" | "pedidos" | null>(
+    "productos"
+  );
+  const [menuAbierto, setMenuAbierto] = useState(false);
+
+function alternarSeccion(
+  seccion: "productos" | "estadisticas" | "pedidos"
+) {
+  setSeccionAbierta((actual) =>
+    actual === seccion ? null : seccion
+  );
+  setMenuAbierto(false);
+}
 
   function claveVariante(variante: Variante) {
     return `${variante.producto_id}__${variante.talle}__${variante.color}`;
@@ -2061,93 +2190,288 @@ function Admin() {
       );
     }, [productos, busqueda]);
 
-  // =========================
+  // ============================================================
   // DATOS DE ESTADÍSTICAS
-  // =========================
+  // ============================================================
 
-  const totalVisitas = visitas.filter(
+  const visitasPeriodo = useMemo(() => {
+    const ahora = new Date();
+
+    const inicio = new Date(ahora);
+    inicio.setHours(0, 0, 0, 0);
+
+    if (periodoEstadisticas === "7dias") {
+      inicio.setDate(
+        inicio.getDate() - 6
+      );
+    }
+
+    if (periodoEstadisticas === "30dias") {
+      inicio.setDate(
+        inicio.getDate() - 29
+      );
+    }
+
+    return visitas.filter((visita) => {
+      const fecha = new Date(visita.fecha);
+
+      return (
+        fecha >= inicio &&
+        fecha <= ahora
+      );
+    });
+  }, [visitas, periodoEstadisticas]);
+
+  const totalVisitas = visitasPeriodo.filter(
     (v) => v.evento === "visita"
   ).length;
 
   const visitantesUnicos = new Set(
-    visitas
+    visitasPeriodo
       .filter(
         (v) => v.evento === "visita"
       )
       .map((v) => v.session_id)
   ).size;
 
-  const visitasCelular = visitas.filter(
+  const visitasCelular = visitasPeriodo.filter(
     (v) =>
       v.evento === "visita" &&
       v.dispositivo === "Celular"
   ).length;
 
-  const visitasPC = visitas.filter(
+  const visitasPC = visitasPeriodo.filter(
     (v) =>
       v.evento === "visita" &&
       v.dispositivo === "PC"
   ).length;
 
-  const productosVistos = visitas.filter(
-    (v) => v.evento === "producto_visto"
-  ).length;
+  const vistasProductoPeriodo =
+    visitasPeriodo.filter(
+      (v) => v.evento === "producto_visto"
+    );
 
-  const agregadosCarrito = visitas.filter(
+  const productosVistos =
+    vistasProductoPeriodo.length;
+
+  const personasQueVieronProductos =
+    new Set(
+      vistasProductoPeriodo.map(
+        (v) => v.session_id
+      )
+    ).size;
+
+  const agregadosCarrito = visitasPeriodo.filter(
     (v) => v.evento === "agregado_carrito"
   ).length;
 
-  const checkouts = visitas.filter(
+  const checkouts = visitasPeriodo.filter(
     (v) => v.evento === "checkout"
   ).length;
 
-  const pedidosRegistrados = visitas.filter(
+  const pedidosRegistrados = visitasPeriodo.filter(
     (v) => v.evento === "pedido"
   ).length;
 
-  const productosMasVistos = useMemo(() => {
-    const conteo: Record<string, number> = {};
+  const pedidosPeriodo = useMemo(() => {
+    const ahora = new Date();
 
-    visitas
+    const inicio = new Date(ahora);
+    inicio.setHours(0, 0, 0, 0);
+
+    if (periodoEstadisticas === "7dias") {
+      inicio.setDate(
+        inicio.getDate() - 6
+      );
+    }
+
+    if (periodoEstadisticas === "30dias") {
+      inicio.setDate(
+        inicio.getDate() - 29
+      );
+    }
+
+    return pedidos.filter((pedido) => {
+      const fecha = new Date(pedido.fecha);
+
+      return (
+        fecha >= inicio &&
+        fecha <= ahora
+      );
+    });
+  }, [pedidos, periodoEstadisticas]);
+
+  const facturacionPeriodo =
+    pedidosPeriodo
+      .filter(
+        (pedido) =>
+          pedido.estado === "confirmado"
+      )
+      .reduce(
+        (total, pedido) =>
+          total + Number(pedido.total || 0),
+        0
+      );
+
+  const conversionVisitantePedido =
+    visitantesUnicos > 0
+      ? (pedidosRegistrados /
+          visitantesUnicos) *
+        100
+      : 0;
+
+  const tasaCarrito =
+    visitantesUnicos > 0
+      ? (agregadosCarrito /
+          visitantesUnicos) *
+        100
+      : 0;
+
+  const productosMasVistos = useMemo(() => {
+    const mapa: Record<
+      string,
+      {
+        vistas: number;
+        personas: Set<string>;
+      }
+    > = {};
+
+    vistasProductoPeriodo
       .filter(
         (v) =>
-          v.evento === "producto_visto" &&
           v.producto_nombre
       )
       .forEach((v) => {
         const nombre =
           v.producto_nombre!;
 
-        conteo[nombre] =
-          (conteo[nombre] || 0) + 1;
-      });
+        if (!mapa[nombre]) {
+          mapa[nombre] = {
+            vistas: 0,
+            personas: new Set<string>(),
+          };
+        }
 
-    return Object.entries(conteo)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5);
-  }, [visitas]);
+        mapa[nombre].vistas += 1;
 
-  const visitasPorDia = useMemo(() => {
-    const conteo: Record<string, number> = {};
-
-    visitas
-      .filter(
-        (v) => v.evento === "visita"
-      )
-      .forEach((v) => {
-        const fecha =
-          new Date(v.fecha).toLocaleDateString(
-            "es-AR"
+        if (v.session_id) {
+          mapa[nombre].personas.add(
+            v.session_id
           );
-
-        conteo[fecha] =
-          (conteo[fecha] || 0) + 1;
+        }
       });
 
-    return Object.entries(conteo)
-      .reverse()
-      .slice(0, 7);
-  }, [visitas]);
+    return Object.entries(mapa)
+      .map(
+        ([nombre, datos]) => ({
+          nombre,
+          vistas: datos.vistas,
+          personas: datos.personas.size,
+        })
+      )
+      .sort(
+        (a, b) =>
+          b.personas - a.personas ||
+          b.vistas - a.vistas
+      )
+      .slice(0, 5);
+  }, [vistasProductoPeriodo]);
+
+  const fechasGrafico = useMemo(() => {
+    const ahora = new Date();
+
+    const inicio = new Date(ahora);
+    inicio.setHours(0, 0, 0, 0);
+
+    if (periodoEstadisticas === "7dias") {
+      inicio.setDate(
+        inicio.getDate() - 6
+      );
+    }
+
+    if (periodoEstadisticas === "30dias") {
+      inicio.setDate(
+        inicio.getDate() - 29
+      );
+    }
+
+    const resultado: {
+      fecha: string;
+      etiqueta: string;
+      visitas: number;
+    }[] = [];
+
+    const cursor = new Date(inicio);
+
+    while (cursor <= ahora) {
+      const anio =
+        cursor.getFullYear();
+
+      const mes =
+        String(
+          cursor.getMonth() + 1
+        ).padStart(2, "0");
+
+      const dia =
+        String(
+          cursor.getDate()
+        ).padStart(2, "0");
+
+      const clave =
+        `${anio}-${mes}-${dia}`;
+
+      const cantidad =
+        visitasPeriodo.filter(
+          (v) => {
+            if (
+              v.evento !== "visita"
+            ) {
+              return false;
+            }
+
+            const fecha =
+              new Date(v.fecha);
+
+            return (
+              fecha.getFullYear() ===
+                anio &&
+              fecha.getMonth() ===
+                cursor.getMonth() &&
+              fecha.getDate() ===
+                cursor.getDate()
+            );
+          }
+        ).length;
+
+      resultado.push({
+        fecha: clave,
+        etiqueta:
+          `${dia}/${mes}`,
+        visitas: cantidad,
+      });
+
+      cursor.setDate(
+        cursor.getDate() + 1
+      );
+    }
+
+    return resultado;
+  }, [visitasPeriodo, periodoEstadisticas]);
+
+  const maxVisitasGrafico =
+    Math.max(
+      ...fechasGrafico.map(
+        (d) => d.visitas
+      ),
+      1
+    );
+
+  const periodoTexto =
+    periodoEstadisticas === "hoy"
+      ? "Hoy"
+      : periodoEstadisticas === "7dias"
+      ? "Últimos 7 días"
+      : "Últimos 30 días";
 
   // =========================
   // ESTILOS
@@ -2398,6 +2722,8 @@ function Admin() {
           >
             <button
               onClick={() => {
+                setSeccionAbierta("productos");
+                setMenuAbierto(false);
                 setMostrarNuevo(
                   true
                 );
@@ -2445,6 +2771,7 @@ function Admin() {
               }}
             >
               + Nuevo producto
+              
             </button>
 
             <button
@@ -2467,9 +2794,121 @@ function Admin() {
         </div>
 
         {/* =========================
+            MENÚ HAMBURGUESA
+        ========================= */}
+        <div style={{ position: "relative", marginBottom: "20px" }}>
+          <button
+            type="button"
+            onClick={() => setMenuAbierto((abierto) => !abierto)}
+            aria-label="Abrir menú de administración"
+            aria-expanded={menuAbierto}
+            style={{
+              width: "100%", display: "flex", alignItems: "center",
+              justifyContent: "space-between", gap: "12px", padding: "14px 16px",
+              borderRadius: "12px", border: "1px solid #d9dfd3", background: "#fff",
+              color: "#263d2d", cursor: "pointer", fontSize: "16px", fontWeight: 700,
+              boxShadow: "0 4px 15px rgba(0,0,0,0.05)",
+            }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <span style={{ fontSize: "24px", lineHeight: 1 }}>☰</span>
+              <span>Menú de administración</span>
+            </span>
+            <span>{menuAbierto ? "▲" : "▼"}</span>
+          </button>
+
+          {menuAbierto && (
+            <div style={{
+              position: "absolute", zIndex: 1000, top: "calc(100% + 8px)", left: 0, right: 0,
+              background: "#fff", border: "1px solid #d9dfd3", borderRadius: "12px",
+              padding: "8px", boxShadow: "0 10px 30px rgba(0,0,0,0.12)",
+            }}>
+              {[
+                { id: "productos" as const, icono: "📦", texto: "Productos" },
+                { id: "pedidos" as const, icono: "🛒", texto: "Pedidos", contador: pedidosPendientes },
+                { id: "estadisticas" as const, icono: "📊", texto: "Estadísticas" },
+              ].map((opcion) => (
+                <button
+                  key={opcion.id}
+                  type="button"
+                  onClick={() => alternarSeccion(opcion.id)}
+                  style={{
+                    width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+                    padding: "13px 14px", border: "none", borderRadius: "9px",
+                    background: seccionAbierta === opcion.id ? "#e5eadf" : "transparent",
+                    color: "#263d2d", cursor: "pointer", textAlign: "left", fontSize: "15px",
+                    fontWeight: seccionAbierta === opcion.id ? 700 : 500,
+                  }}
+                >
+                  <span style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <span>{opcion.icono}</span><span>{opcion.texto}</span>
+                  </span>
+                  {opcion.contador !== undefined && opcion.contador > 0 && (
+                    <span style={{ minWidth: "24px", height: "24px", padding: "0 7px", borderRadius: "999px",
+                      background: "#263d2d", color: "#fff", display: "flex", alignItems: "center",
+                      justifyContent: "center", fontSize: "12px", fontWeight: 700 }}>
+                      {opcion.contador}
+                    </span>
+                  )}
+                </button>
+              ))}
+              <div style={{ borderTop: "1px solid #eee", margin: "8px 0" }} />
+              <button
+                type="button"
+                onClick={() => { setMenuAbierto(false); cerrarSesion(); }}
+                style={{ width: "100%", padding: "13px 14px", border: "none", borderRadius: "9px",
+                  background: "transparent", color: "#8a2d2d", cursor: "pointer", textAlign: "left",
+                  fontSize: "15px", fontWeight: 600 }}
+              >
+                Cerrar sesión
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* =========================
+            SECCIONES / CATEGORÍAS
+        ========================= */}
+        <div style={{ background: "#fff", borderRadius: "14px", padding: "20px", marginBottom: "25px", boxShadow: "0 4px 20px rgba(0,0,0,0.06)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+            <div>
+              <h2 style={{ margin: 0, color: "#263d2d" }}>Secciones de la tienda</h2>
+              <p style={{ margin: "5px 0 0", color: "#666", fontSize: "14px" }}>Creá, editá, activá, desactivá y ordená las secciones de tu tienda.</p>
+            </div>
+            <button type="button" onClick={() => setMostrarSecciones((v) => !v)} style={{ ...buttonStyle, background: "#e5eadf", color: "#263d2d" }}>{mostrarSecciones ? "Ocultar" : "Administrar secciones"}</button>
+          </div>
+          {mostrarSecciones && <div style={{ marginTop: "18px" }}>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "16px" }}>
+              <input value={nuevaCategoria} onChange={(e) => setNuevaCategoria(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") agregarCategoria(); }} placeholder="Ej: Ofertas, Novedades, Camitas..." style={{ ...inputStyle, flex: 1, minWidth: "240px" }} disabled={guardandoSeccion} />
+              <button type="button" onClick={agregarCategoria} disabled={guardandoSeccion} style={{ ...buttonStyle, background: "#263d2d", color: "#fff" }}>+ Agregar sección</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {secciones.map((seccion, indice) => <div key={seccion.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px", background: seccion.activa ? "#f5f7f2" : "#f1f1f1", border: "1px solid #dfe5db", borderRadius: "9px", flexWrap: "wrap" }}>
+                {seccionEditando === seccion.id ? <>
+                  <input value={nombreSeccionEditando} onChange={(e) => setNombreSeccionEditando(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") guardarEdicionSeccion(seccion); if (e.key === "Escape") cancelarEdicionSeccion(); }} autoFocus style={{ ...inputStyle, flex: 1, minWidth: "220px" }} />
+                  <button type="button" onClick={() => guardarEdicionSeccion(seccion)} disabled={guardandoSeccion} style={{ ...buttonStyle, background: "#263d2d", color: "#fff" }}>Guardar</button>
+                  <button type="button" onClick={cancelarEdicionSeccion} disabled={guardandoSeccion} style={{ ...buttonStyle, background: "#eee", color: "#333" }}>Cancelar</button>
+                </> : <>
+                  <span style={{ minWidth: "24px", color: "#777", fontSize: "13px" }}>{indice + 1}.</span>
+                  <span style={{ fontWeight: 600, color: "#263d2d", flex: 1, minWidth: "150px" }}>{seccion.nombre}</span>
+                  <span style={{ fontSize: "12px", padding: "4px 8px", borderRadius: "20px", background: seccion.activa ? "#dce9d8" : "#e5e5e5", color: seccion.activa ? "#263d2d" : "#777" }}>{seccion.activa ? "Visible" : "Oculta"}</span>
+                  <button type="button" onClick={() => moverSeccion(seccion, -1)} disabled={guardandoSeccion || indice === 0} style={{ ...buttonStyle, padding: "7px 10px", background: "#e5eadf", color: "#263d2d", opacity: indice === 0 ? 0.45 : 1 }}>↑</button>
+                  <button type="button" onClick={() => moverSeccion(seccion, 1)} disabled={guardandoSeccion || indice === secciones.length - 1} style={{ ...buttonStyle, padding: "7px 10px", background: "#e5eadf", color: "#263d2d", opacity: indice === secciones.length - 1 ? 0.45 : 1 }}>↓</button>
+                  <button type="button" onClick={() => iniciarEdicionSeccion(seccion)} disabled={guardandoSeccion} style={{ ...buttonStyle, padding: "7px 11px", background: "#263d2d", color: "#fff" }}>Editar</button>
+                  <button type="button" onClick={() => alternarActivaSeccion(seccion)} disabled={guardandoSeccion} style={{ ...buttonStyle, padding: "7px 11px", background: "#e5eadf", color: "#263d2d" }}>{seccion.activa ? "Ocultar" : "Mostrar"}</button>
+                  <button type="button" onClick={() => eliminarCategoria(seccion)} disabled={guardandoSeccion} style={{ border: "none", background: "#f1dede", color: "#9b3333", borderRadius: "6px", cursor: "pointer", padding: "8px 11px", fontWeight: 700 }}>Eliminar</button>
+                </>}
+              </div>)}
+              {secciones.length === 0 && <p style={{ margin: 0, color: "#666" }}>No hay secciones cargadas todavía.</p>}
+            </div>
+          </div>}
+        </div>
+
+        {/* =========================
             ESTADÍSTICAS
         ========================= */}
 
+        <div style={{ display: seccionAbierta === "estadisticas" ? "block" : "none" }}>
         <div
           style={{
             background: "#fff",
@@ -2509,7 +2948,7 @@ function Admin() {
                   fontSize: "14px",
                 }}
               >
-                Visitas y comportamiento de tus clientes
+                Tráfico, productos y comportamiento de tus clientes
               </p>
             </div>
 
@@ -2534,6 +2973,60 @@ function Admin() {
             </button>
           </div>
 
+          {/* SELECTOR DE PERÍODO */}
+
+          <div
+            style={{
+              display: "flex",
+              gap: "8px",
+              flexWrap: "wrap",
+              marginBottom: "20px",
+            }}
+          >
+            {[
+              {
+                valor: "hoy" as PeriodoEstadisticas,
+                texto: "Hoy",
+              },
+              {
+                valor: "7dias" as PeriodoEstadisticas,
+                texto: "Últimos 7 días",
+              },
+              {
+                valor: "30dias" as PeriodoEstadisticas,
+                texto: "Últimos 30 días",
+              },
+            ].map((opcion) => {
+              const activo =
+                periodoEstadisticas ===
+                opcion.valor;
+
+              return (
+                <button
+                  key={opcion.valor}
+                  onClick={() =>
+                    setPeriodoEstadisticas(
+                      opcion.valor
+                    )
+                  }
+                  style={{
+                    ...buttonStyle,
+                    background:
+                      activo
+                        ? "#263d2d"
+                        : "#e5eadf",
+                    color:
+                      activo
+                        ? "#fff"
+                        : "#263d2d",
+                  }}
+                >
+                  {opcion.texto}
+                </button>
+              );
+            })}
+          </div>
+
           {cargandoEstadisticas ? (
             <div
               style={{
@@ -2546,6 +3039,8 @@ function Admin() {
             </div>
           ) : (
             <>
+              {/* TARJETAS */}
+
               <div
                 style={{
                   display: "grid",
@@ -2557,12 +3052,12 @@ function Admin() {
               >
                 {[
                   {
-                    titulo: "Visitas",
-                    valor: totalVisitas,
-                  },
-                  {
                     titulo: "Visitantes únicos",
                     valor: visitantesUnicos,
+                  },
+                  {
+                    titulo: "Visitas totales",
+                    valor: totalVisitas,
                   },
                   {
                     titulo: "Desde celular",
@@ -2573,8 +3068,12 @@ function Admin() {
                     valor: visitasPC,
                   },
                   {
-                    titulo: "Productos vistos",
+                    titulo: "Vistas de productos",
                     valor: productosVistos,
+                  },
+                  {
+                    titulo: "Personas que vieron productos",
+                    valor: personasQueVieronProductos,
                   },
                   {
                     titulo: "Agregados al carrito",
@@ -2587,6 +3086,24 @@ function Admin() {
                   {
                     titulo: "Pedidos",
                     valor: pedidosRegistrados,
+                  },
+                  {
+                    titulo: "Facturación",
+                    valor: `$${facturacionPeriodo.toLocaleString(
+                      "es-AR"
+                    )}`,
+                  },
+                  {
+                    titulo: "Conversión a pedido",
+                    valor: `${conversionVisitantePedido.toFixed(
+                      1
+                    )}%`,
+                  },
+                  {
+                    titulo: "Tasa de carrito",
+                    valor: `${tasaCarrito.toFixed(
+                      1
+                    )}%`,
                   },
                 ].map(
                   (estadistica) => (
@@ -2625,7 +3142,7 @@ function Admin() {
                           color:
                             "#263d2d",
                           fontSize:
-                            "25px",
+                            "23px",
                         }}
                       >
                         {
@@ -2637,6 +3154,287 @@ function Admin() {
                 )}
               </div>
 
+              {/* GRÁFICO */}
+
+              <div
+                style={{
+                  background:
+                    "#f8f8f4",
+                  borderRadius:
+                    "10px",
+                  padding:
+                    "15px",
+                  marginBottom:
+                    "15px",
+                  border:
+                    "1px solid #e5e5df",
+                }}
+              >
+                <div
+                  style={{
+                    display:
+                      "flex",
+                    justifyContent:
+                      "space-between",
+                    alignItems:
+                      "center",
+                    gap:
+                      "10px",
+                    flexWrap:
+                      "wrap",
+                    marginBottom:
+                      "15px",
+                  }}
+                >
+                  <div>
+                    <h3
+                      style={{
+                        margin:
+                          "0 0 4px",
+                        color:
+                          "#263d2d",
+                      }}
+                    >
+                      Visitas por día
+                    </h3>
+
+                    <span
+                      style={{
+                        fontSize:
+                          "13px",
+                        color:
+                          "#777",
+                      }}
+                    >
+                      {periodoTexto}
+                    </span>
+                  </div>
+
+                  <strong
+                    style={{
+                      color:
+                        "#263d2d",
+                    }}
+                  >
+                    {totalVisitas} visitas
+                  </strong>
+                </div>
+
+                {fechasGrafico.length ===
+                0 ? (
+                  <p
+                    style={{
+                      color:
+                        "#777",
+                      textAlign:
+                        "center",
+                      padding:
+                        "30px",
+                    }}
+                  >
+                    Todavía no hay datos.
+                  </p>
+                ) : (
+                  <div
+                    style={{
+                      width:
+                        "100%",
+                      overflowX:
+                        "auto",
+                    }}
+                  >
+                    <div
+                      style={{
+                        minWidth:
+                          periodoEstadisticas ===
+                          "30dias"
+                            ? "700px"
+                            : "100%",
+                        height:
+                          "250px",
+                        position:
+                          "relative",
+                        padding:
+                          "10px 5px 30px",
+                        boxSizing:
+                          "border-box",
+                      }}
+                    >
+                      <svg
+                        viewBox="0 0 1000 220"
+                        preserveAspectRatio="none"
+                        style={{
+                          width:
+                            "100%",
+                          height:
+                            "210px",
+                          display:
+                            "block",
+                          overflow:
+                            "visible",
+                        }}
+                      >
+                        {/* LÍNEAS DE REFERENCIA */}
+
+                        <line
+                          x1="0"
+                          y1="20"
+                          x2="1000"
+                          y2="20"
+                          stroke="#ddd"
+                          strokeWidth="1"
+                        />
+
+                        <line
+                          x1="0"
+                          y1="120"
+                          x2="1000"
+                          y2="120"
+                          stroke="#ddd"
+                          strokeWidth="1"
+                        />
+
+                        <line
+                          x1="0"
+                          y1="220"
+                          x2="1000"
+                          y2="220"
+                          stroke="#ddd"
+                          strokeWidth="1"
+                        />
+
+                        {/* BARRAS */}
+
+                        {fechasGrafico.map(
+                          (
+                            dato,
+                            index
+                          ) => {
+                            const ancho =
+                              1000 /
+                              fechasGrafico.length;
+
+                            const altura =
+                              dato.visitas /
+                              maxVisitasGrafico *
+                              180;
+
+                            const x =
+                              index *
+                                ancho +
+                              ancho *
+                                0.2;
+
+                            const y =
+                              220 -
+                              altura;
+
+                            return (
+                              <rect
+                                key={
+                                  dato.fecha
+                                }
+                                x={
+                                  x
+                                }
+                                y={
+                                  y
+                                }
+                                width={
+                                  Math.max(
+                                    ancho *
+                                      0.6,
+                                    2
+                                  )
+                                }
+                                height={
+                                  Math.max(
+                                    altura,
+                                    dato.visitas >
+                                      0
+                                      ? 2
+                                      : 0
+                                  )
+                                }
+                                rx="3"
+                                fill="#263d2d"
+                                opacity="0.85"
+                              />
+                            );
+                          }
+                        )}
+                      </svg>
+
+                      {/* ETIQUETAS */}
+
+                      <div
+                        style={{
+                          position:
+                            "absolute",
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          display:
+                            "flex",
+                          justifyContent:
+                            "space-between",
+                          gap:
+                            "4px",
+                          padding:
+                            "0 5px",
+                        }}
+                      >
+                        {fechasGrafico.map(
+                          (
+                            dato,
+                            index
+                          ) => {
+                            const mostrar =
+                              periodoEstadisticas ===
+                              "30dias"
+                                ? index %
+                                    5 ===
+                                    0 ||
+                                  index ===
+                                    fechasGrafico.length -
+                                      1
+                                : true;
+
+                            return (
+                              <span
+                                key={
+                                  dato.fecha
+                                }
+                                style={{
+                                  fontSize:
+                                    "10px",
+                                  color:
+                                    "#777",
+                                  flex:
+                                    1,
+                                  textAlign:
+                                    "center",
+                                  visibility:
+                                    mostrar
+                                      ? "visible"
+                                      : "hidden",
+                                }}
+                              >
+                                {
+                                  dato.etiqueta
+                                }
+                              </span>
+                            );
+                          }
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* PRODUCTOS + EMBUDO */}
+
               <div
                 style={{
                   display: "grid",
@@ -2645,6 +3443,8 @@ function Admin() {
                   gap: "15px",
                 }}
               >
+                {/* PRODUCTOS MÁS VISTOS */}
+
                 <div
                   style={{
                     background:
@@ -2665,6 +3465,19 @@ function Admin() {
                     Productos más vistos
                   </h3>
 
+                  <p
+                    style={{
+                      marginTop:
+                        "-5px",
+                      fontSize:
+                        "12px",
+                      color:
+                        "#777",
+                    }}
+                  >
+                    Ordenados por personas distintas
+                  </p>
+
                   {productosMasVistos.length ===
                   0 ? (
                     <p
@@ -2677,17 +3490,17 @@ function Admin() {
                     </p>
                   ) : (
                     productosMasVistos.map(
-                      ([nombre, cantidad], index) => (
+                      (
+                        producto,
+                        index
+                      ) => (
                         <div
-                          key={nombre}
+                          key={
+                            producto.nombre
+                          }
                           style={{
-                            display:
-                              "flex",
-                            justifyContent:
-                              "space-between",
-                            gap: "10px",
                             padding:
-                              "8px 0",
+                              "10px 0",
                             borderBottom:
                               index <
                               productosMasVistos.length -
@@ -2696,23 +3509,67 @@ function Admin() {
                                 : "none",
                           }}
                         >
-                          <span>
-                            {nombre}
-                          </span>
-
-                          <strong
+                          <div
                             style={{
-                              color:
-                                "#263d2d",
+                              display:
+                                "flex",
+                              justifyContent:
+                                "space-between",
+                              gap:
+                                "10px",
                             }}
                           >
-                            {cantidad}
-                          </strong>
+                            <strong
+                              style={{
+                                color:
+                                  "#263d2d",
+                              }}
+                            >
+                              {index +
+                                1}
+                              .{" "}
+                              {
+                                producto.nombre
+                              }
+                            </strong>
+
+                            <strong
+                              style={{
+                                color:
+                                  "#263d2d",
+                                whiteSpace:
+                                  "nowrap",
+                              }}
+                            >
+                              {
+                                producto.personas
+                              }{" "}
+                              personas
+                            </strong>
+                          </div>
+
+                          <div
+                            style={{
+                              marginTop:
+                                "3px",
+                              fontSize:
+                                "12px",
+                              color:
+                                "#777",
+                            }}
+                          >
+                            {
+                              producto.vistas
+                            }{" "}
+                            vistas totales
+                          </div>
                         </div>
                       )
                     )
                   )}
                 </div>
+
+                {/* EMBUDO */}
 
                 <div
                   style={{
@@ -2731,35 +3588,82 @@ function Admin() {
                         "#263d2d",
                     }}
                   >
-                    Visitas últimos días
+                    Embudo de compra
                   </h3>
 
-                  {visitasPorDia.length ===
-                  0 ? (
-                    <p
-                      style={{
-                        color:
-                          "#777",
-                      }}
-                    >
-                      Todavía no hay datos.
-                    </p>
-                  ) : (
-                    visitasPorDia.map(
-                      ([fecha, cantidad]) => (
+                  <div
+                    style={{
+                      display:
+                        "flex",
+                      flexDirection:
+                        "column",
+                      gap:
+                        "9px",
+                    }}
+                  >
+                    {[
+                      {
+                        nombre:
+                          "Visitantes",
+                        valor:
+                          visitantesUnicos,
+                      },
+                      {
+                        nombre:
+                          "Vieron productos",
+                        valor:
+                          personasQueVieronProductos,
+                      },
+                      {
+                        nombre:
+                          "Agregaron al carrito",
+                        valor:
+                          agregadosCarrito,
+                      },
+                      {
+                        nombre:
+                          "Iniciaron checkout",
+                        valor:
+                          checkouts,
+                      },
+                      {
+                        nombre:
+                          "Hicieron pedido",
+                        valor:
+                          pedidosRegistrados,
+                      },
+                    ].map(
+                      (paso) => (
                         <div
-                          key={fecha}
+                          key={
+                            paso.nombre
+                          }
                           style={{
                             display:
                               "flex",
                             justifyContent:
                               "space-between",
+                            alignItems:
+                              "center",
+                            background:
+                              "#fff",
+                            borderRadius:
+                              "8px",
                             padding:
-                              "7px 0",
+                              "10px",
                           }}
                         >
-                          <span>
-                            {fecha}
+                          <span
+                            style={{
+                              color:
+                                "#555",
+                              fontSize:
+                                "13px",
+                            }}
+                          >
+                            {
+                              paso.nombre
+                            }
                           </span>
 
                           <strong
@@ -2768,22 +3672,27 @@ function Admin() {
                                 "#263d2d",
                             }}
                           >
-                            {cantidad}
+                            {
+                              paso.valor
+                            }
                           </strong>
                         </div>
                       )
-                    )
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
             </>
           )}
         </div>
 
+        </div>
+
         {/* =========================
             PEDIDOS
         ========================= */}
 
+        <div style={{ display: seccionAbierta === "pedidos" ? "block" : "none" }}>
         <div
           style={{
             background: "#fff",
@@ -2834,6 +3743,7 @@ function Admin() {
 
             <button
               onClick={() => {
+                setSeccionAbierta("productos");
                 cargarPedidos();
                 cargarProductos();
                 cargarEstadisticas();
@@ -3382,10 +4292,13 @@ function Admin() {
           )}
         </div>
 
+        </div>
+
         {/* =========================
             BUSCADOR
         ========================= */}
 
+        <div style={{ display: seccionAbierta === "productos" ? "block" : "none" }}>
         <div
           style={{
             background: "#fff",
@@ -4425,6 +5338,8 @@ function Admin() {
             )}
           </div>
         )}
+
+        </div>
 
         {/* =========================
             MODAL EDITAR PRODUCTO

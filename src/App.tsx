@@ -9,6 +9,13 @@ import type { TouchEvent, FormEvent } from 'react'
 
 import { supabase } from './lib/supabase'
 
+type Seccion = {
+  id: number
+  nombre: string
+  orden: number
+  activa: boolean
+}
+
 type Producto = {
   id: number
   name: string
@@ -59,12 +66,10 @@ const WHATSAPP_NUMERO = '5492664015639'
 const obtenerSessionId = () => {
   const clave = 'luckepet_session_id'
 
-  let sessionId =
-    localStorage.getItem(clave)
+  let sessionId = localStorage.getItem(clave)
 
   if (!sessionId) {
-    sessionId =
-      crypto.randomUUID()
+    sessionId = crypto.randomUUID()
 
     localStorage.setItem(
       clave,
@@ -86,32 +91,19 @@ const registrarEvento = async (
   producto?: Producto | null
 ) => {
   try {
-    const sessionId =
-      obtenerSessionId()
+    const sessionId = obtenerSessionId()
+    const dispositivo = obtenerDispositivo()
 
-    const dispositivo =
-      obtenerDispositivo()
-
-    const { error } =
-      await supabase
-        .from('Visitas')
-        .insert({
-          session_id:
-            sessionId,
-
-          evento,
-
-          producto_id:
-            producto?.id || null,
-
-          producto_nombre:
-            producto?.name || null,
-
-          dispositivo,
-
-          fecha:
-            new Date().toISOString()
-        })
+    const { error } = await supabase
+      .from('Visitas')
+      .insert({
+        session_id: sessionId,
+        evento,
+        producto_id: producto?.id || null,
+        producto_nombre: producto?.name || null,
+        dispositivo,
+        fecha: new Date().toISOString()
+      })
 
     if (error) {
       console.error(
@@ -128,7 +120,11 @@ const registrarEvento = async (
 }
 
 function App() {
-  const [productos, setProductos] = useState<Producto[]>([])
+  const [productos, setProductos] =
+    useState<Producto[]>([])
+
+  const [secciones, setSecciones] =
+    useState<Seccion[]>([])
 
   const [imagenesPortada, setImagenesPortada] =
     useState<Record<number, string>>({})
@@ -163,9 +159,8 @@ function App() {
   const [imagenesVariantes, setImagenesVariantes] =
     useState<Record<number, string[]>>({})
 
-  const [imagenesGenerales, setImagenesGenerales] =
-    useState<string[]>([])
-
+const [, setImagenesGenerales] =
+  useState<string[]>([])
   const [fotoActual, setFotoActual] =
     useState(0)
 
@@ -228,10 +223,21 @@ function App() {
     try {
       const url = new URL(valor)
 
-      return decodeURIComponent(url.pathname)
-        .replace('/storage/v1/object/public/', '')
-        .replace('/storage/v1/object/sign/', '')
-        .replace('/storage/v1/object/authenticated/', '')
+      return decodeURIComponent(
+        url.pathname
+      )
+        .replace(
+          '/storage/v1/object/public/',
+          ''
+        )
+        .replace(
+          '/storage/v1/object/sign/',
+          ''
+        )
+        .replace(
+          '/storage/v1/object/authenticated/',
+          ''
+        )
         .replace(/^\/+/, '')
         .replace(/\/+$/, '')
         .toLowerCase()
@@ -276,21 +282,50 @@ function App() {
   // STOCK DISPONIBLE
   // =====================================================
 
-  const stockDisponible = (producto: Producto) => {
+  const stockDisponible = (
+    producto: Producto
+  ) => {
     return Math.max(
       0,
       Number(producto.stock || 0) -
-        Number(producto.stock_reservado || 0)
+        Number(
+          producto.stock_reservado || 0
+        )
     )
   }
 
   // =====================================================
-  // CARGAR TODO
+  // CARGA INICIAL
   // =====================================================
 
   useEffect(() => {
     cargarProductos()
+    cargarSecciones()
   }, [])
+
+  // =====================================================
+  // VALIDAR SECCIÓN SELECCIONADA
+  // =====================================================
+
+  useEffect(() => {
+    if (
+      categoriaSeleccionada !== 'Todos' &&
+      !secciones.some(
+        seccion =>
+          seccion.nombre ===
+          categoriaSeleccionada
+      )
+    ) {
+      setCategoriaSeleccionada('Todos')
+    }
+  }, [
+    secciones,
+    categoriaSeleccionada
+  ])
+
+  // =====================================================
+  // CARGAR FOTOS DE PORTADA
+  // =====================================================
 
   useEffect(() => {
     if (productos.length > 0) {
@@ -303,7 +338,9 @@ function App() {
   // =====================================================
 
   useEffect(() => {
-    if (!window.history.state?.luckepetBase) {
+    if (
+      !window.history.state?.luckepetBase
+    ) {
       window.history.replaceState(
         {
           luckepetBase: true
@@ -333,7 +370,7 @@ function App() {
   }, [productoSeleccionado])
 
   // =====================================================
-  // LIMPIAR PRODUCTO SELECCIONADO
+  // LIMPIAR PRODUCTO
   // =====================================================
 
   const limpiarProductoSeleccionado = () => {
@@ -382,11 +419,47 @@ function App() {
   }
 
   // =====================================================
+  // SECCIONES
+  // =====================================================
+
+  async function cargarSecciones() {
+    const {
+      data,
+      error
+    } = await supabase
+      .from('Secciones')
+      .select(
+        'id, nombre, orden, activa'
+      )
+      .eq('activa', true)
+      .order('orden', {
+        ascending: true
+      })
+
+    if (error) {
+      console.error(
+        'ERROR SECCIONES:',
+        error
+      )
+
+      setSecciones([])
+      return
+    }
+
+    setSecciones(
+      (data || []) as Seccion[]
+    )
+  }
+
+  // =====================================================
   // FOTOS DE PORTADA
   // =====================================================
 
   async function cargarFotosPortada() {
-    const mapa: Record<number, string> = {}
+    const mapa: Record<
+      number,
+      string
+    > = {}
 
     const {
       data,
@@ -411,24 +484,30 @@ function App() {
           if (
             imagen.producto_id &&
             imagen.image_url?.trim() &&
-            !mapa[imagen.producto_id]
+            !mapa[
+              imagen.producto_id
+            ]
           ) {
-            mapa[imagen.producto_id] =
+            mapa[
+              imagen.producto_id
+            ] =
               imagen.image_url.trim()
           }
         }
       )
     }
 
-    productos.forEach(producto => {
-      if (
-        !mapa[producto.id] &&
-        producto.image?.trim()
-      ) {
-        mapa[producto.id] =
-          producto.image.trim()
+    productos.forEach(
+      producto => {
+        if (
+          !mapa[producto.id] &&
+          producto.image?.trim()
+        ) {
+          mapa[producto.id] =
+            producto.image.trim()
+        }
       }
-    })
+    )
 
     setImagenesPortada(mapa)
   }
@@ -487,29 +566,6 @@ function App() {
   }
 
   // =====================================================
-  // CARGAR TODAS LAS IMÁGENES
-  // =====================================================
-
-  async function cargarTodasLasImagenesProducto(
-    producto: Producto
-  ) {
-    const fotosGenerales =
-      await cargarImagenesGenerales(
-        producto
-      )
-
-    setImagenesGenerales(
-      fotosGenerales
-    )
-
-    setImagenesProducto(
-      fotosGenerales
-    )
-
-    setFotoActual(0)
-  }
-
-  // =====================================================
   // CARGAR VARIANTES
   // =====================================================
 
@@ -541,7 +597,13 @@ function App() {
       setVariantes([])
       setImagenesVariantes({})
 
-      return
+      return {
+        variantes: [] as Variante[],
+        mapa: {} as Record<
+          number,
+          string[]
+        >
+      }
     }
 
     const variantesCargadas =
@@ -567,7 +629,15 @@ function App() {
       variantesCargadas.length === 0
     ) {
       setImagenesVariantes({})
-      return
+
+      return {
+        variantes:
+          variantesCargadas,
+        mapa: {} as Record<
+          number,
+          string[]
+        >
+      }
     }
 
     const ids =
@@ -602,7 +672,14 @@ function App() {
 
       setImagenesVariantes({})
 
-      return
+      return {
+        variantes:
+          variantesCargadas,
+        mapa: {} as Record<
+          number,
+          string[]
+        >
+      }
     }
 
     const mapa: Record<
@@ -656,6 +733,12 @@ function App() {
     setImagenesVariantes(
       mapa
     )
+
+    return {
+      variantes:
+        variantesCargadas,
+      mapa
+    }
   }
 
   // =====================================================
@@ -693,15 +776,62 @@ function App() {
     setImagenAmpliada(false)
     setCargandoDetalle(true)
 
-    await cargarTodasLasImagenesProducto(
-      producto
-    )
+    try {
+      // -----------------------------------------------
+      // 1. CARGAR FOTOS GENERALES
+      // -----------------------------------------------
 
-    await cargarVariantes(
-      producto.id
-    )
+      const fotosGenerales =
+        await cargarImagenesGenerales(
+          producto
+        )
 
-    setCargandoDetalle(false)
+      setImagenesGenerales(
+        fotosGenerales
+      )
+
+      // -----------------------------------------------
+      // 2. CARGAR VARIANTES Y SUS FOTOS
+      // -----------------------------------------------
+
+      const resultado =
+        await cargarVariantes(
+          producto.id
+        )
+
+      // -----------------------------------------------
+      // 3. ARMAR GALERÍA COMPLETA
+      //
+      // IMPORTANTE:
+      // Acá se cargan TODAS las imágenes una sola vez.
+      // Después seleccionar talle/color NO modifica
+      // esta galería.
+      // -----------------------------------------------
+
+      const fotosVariantes =
+        Object.values(
+          resultado.mapa
+        ).flat()
+
+      const galeriaCompleta =
+        fotosUnicas([
+          ...fotosGenerales,
+          ...fotosVariantes
+        ])
+
+      setImagenesProducto(
+        galeriaCompleta
+      )
+
+      setFotoActual(0)
+    } catch (error) {
+      console.error(
+        'ERROR ABRIENDO PRODUCTO:',
+        error
+      )
+    } finally {
+      setCargandoDetalle(false)
+    }
   }
 
   // =====================================================
@@ -730,13 +860,47 @@ function App() {
       talle
     )
 
+    // Al cambiar talle reiniciamos color.
     setColorSeleccionado('')
 
-    setImagenesProducto(
-      imagenesGenerales
-    )
+    // Buscamos la primera variante de ese talle.
+    // NO agregamos ni quitamos fotos.
+    const variante =
+      variantes.find(
+        item =>
+          item.talle === talle
+      )
 
-    setFotoActual(0)
+    if (!variante) {
+      return
+    }
+
+    const fotosTalle =
+      imagenesVariantes[
+        variante.id
+      ] || []
+
+    // Buscamos esas fotos DENTRO de la galería
+    // que ya fue cargada al abrir el producto.
+    const indiceFoto =
+      imagenesProducto.findIndex(
+        foto =>
+          fotosTalle.some(
+            fotoVariante =>
+              normalizarUrl(
+                foto
+              ) ===
+              normalizarUrl(
+                fotoVariante
+              )
+          )
+      )
+
+    if (indiceFoto >= 0) {
+      setFotoActual(
+        indiceFoto
+      )
+    }
   }
 
   // =====================================================
@@ -777,8 +941,6 @@ function App() {
       color
     )
 
-    setFotoActual(0)
-
     const variante =
       variantes.find(
         item =>
@@ -788,10 +950,6 @@ function App() {
       )
 
     if (!variante) {
-      setImagenesProducto(
-        imagenesGenerales
-      )
-
       return
     }
 
@@ -800,17 +958,27 @@ function App() {
         variante.id
       ] || []
 
-    if (
-      fotosColor.length > 0
-    ) {
-      setImagenesProducto(
-        fotosUnicas(
-          fotosColor
-        )
+    // IMPORTANTE:
+    // No modificamos imagenesProducto.
+    // Solo buscamos la foto correspondiente
+    // dentro de las fotos ya cargadas.
+    const indiceFoto =
+      imagenesProducto.findIndex(
+        foto =>
+          fotosColor.some(
+            fotoVariante =>
+              normalizarUrl(
+                foto
+              ) ===
+              normalizarUrl(
+                fotoVariante
+              )
+          )
       )
-    } else {
-      setImagenesProducto(
-        imagenesGenerales
+
+    if (indiceFoto >= 0) {
+      setFotoActual(
+        indiceFoto
       )
     }
   }
@@ -1214,7 +1382,7 @@ function App() {
           []) as Producto[]
 
       // ============================================
-      // VERIFICAR STOCK ACTUAL
+      // VERIFICAR STOCK
       // ============================================
 
       for (const producto of carrito) {
@@ -1250,7 +1418,7 @@ function App() {
       }
 
       // ============================================
-      // PREPARAR ITEMS DEL PEDIDO
+      // ITEMS
       // ============================================
 
       const items = carrito.map(
@@ -1349,7 +1517,7 @@ function App() {
       )
 
       // ============================================
-      // ESTADÍSTICA: PEDIDO
+      // ESTADÍSTICA PEDIDO
       // ============================================
 
       registrarEvento(
@@ -1357,7 +1525,7 @@ function App() {
       )
 
       // ============================================
-      // ENVIAR EMAIL
+      // EMAIL
       // ============================================
 
       const {
@@ -1383,7 +1551,7 @@ function App() {
       }
 
       // ============================================
-      // PREPARAR WHATSAPP
+      // WHATSAPP
       // ============================================
 
       const numeroPedido =
@@ -1419,9 +1587,7 @@ function App() {
       // ============================================
 
       setPedidoCreado(true)
-
       setCarrito([])
-
       setMostrarCarrito(false)
 
       await cargarProductos()
@@ -1434,7 +1600,6 @@ function App() {
         telefono: '',
         email: ''
       })
-
     } catch (error) {
       console.error(
         'ERROR CREANDO PEDIDO:',
@@ -1602,6 +1767,7 @@ function App() {
       />
 
       <Navbar
+        secciones={secciones}
         categoriaSeleccionada={
           categoriaSeleccionada
         }
@@ -2399,7 +2565,7 @@ function App() {
             )}
 
           {/* =================================================
-              DETALLE
+              DETALLE PRODUCTO
           ================================================= */}
 
           <div className="producto-overlay">
@@ -2777,8 +2943,12 @@ function App() {
                           )
                         : obtenerPrecioActual()
 
+                    // La imagen que se guarda en el carrito
+                    // es la que está mostrando actualmente.
                     const imagenCarrito =
-                      imagenesProducto[0] ||
+                      imagenesProducto[
+                        fotoActual
+                      ] ||
                       imagenesPortada[
                         productoSeleccionado.id
                       ] ||

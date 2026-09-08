@@ -1,37 +1,64 @@
+type Seccion = {
+  id: number
+  nombre: string
+  orden: number
+  activa: boolean
+}
+
 type NavbarProps = {
+  secciones: Seccion[]
   categoriaSeleccionada: string
-  setCategoriaSeleccionada: (categoria: string) => void
+  setCategoriaSeleccionada: (
+    categoria: string
+  ) => void
 }
 
 function Navbar({
+  secciones,
   categoriaSeleccionada,
   setCategoriaSeleccionada
 }: NavbarProps) {
 
-  const categorias = [
-    "Todos",
-    "Perros",
-    "Gatos",
-    "Higiene",
-    "Accesorios"
-  ]
-
   return (
     <nav className="categorias">
 
-      {categorias.map((categoria) => (
-        <button
-          key={categoria}
-          className={
-            categoriaSeleccionada === categoria
-              ? "categoria-activa"
-              : ""
-          }
-          onClick={() => setCategoriaSeleccionada(categoria)}
-        >
-          {categoria}
-        </button>
-      ))}
+      <button
+        className={
+          categoriaSeleccionada === 'Todos'
+            ? 'categoria-activa'
+            : ''
+        }
+        onClick={() =>
+          setCategoriaSeleccionada('Todos')
+        }
+      >
+        Todos
+      </button>
+
+      {secciones
+        .filter(seccion => seccion.activa)
+        .sort(
+          (a, b) =>
+            a.orden - b.orden
+        )
+        .map(seccion => (
+          <button
+            key={seccion.id}
+            className={
+              categoriaSeleccionada ===
+              seccion.nombre
+                ? 'categoria-activa'
+                : ''
+            }
+            onClick={() =>
+              setCategoriaSeleccionada(
+                seccion.nombre
+              )
+            }
+          >
+            {seccion.nombre}
+          </button>
+        ))}
 
     </nav>
   )
