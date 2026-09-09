@@ -1,7 +1,6 @@
 import './App.css'
 
 import Header from './components/header'
-import Navbar from './components/navbar'
 import Footer from './components/footer'
 
 import { useEffect, useState } from 'react'
@@ -9,9 +8,10 @@ import type { TouchEvent, FormEvent } from 'react'
 
 import { supabase } from './lib/supabase'
 
-type Seccion = {
+type Categoria = {
   id: number
   nombre: string
+  parent_id: number | null
   orden: number
   activa: boolean
 }
@@ -22,6 +22,7 @@ type Producto = {
   orden: number
   description: string | null
   price: number
+  descuento_porcentaje?: number
   image: string | null
   category: string[] | string | null
   stock: number
@@ -124,8 +125,14 @@ function App() {
   const [productos, setProductos] =
     useState<Producto[]>([])
 
-  const [secciones, setSecciones] =
-    useState<Seccion[]>([])
+  const [categorias, setCategorias] =
+    useState<Categoria[]>([])
+
+  const [menuCategoriasAbierto, setMenuCategoriasAbierto] =
+    useState(false)
+
+  const [categoriasExpandida, setCategoriasExpandida] =
+    useState<Set<number>>(new Set())
 
   const [imagenesPortada, setImagenesPortada] =
     useState<Record<number, string>>({})
@@ -301,28 +308,8 @@ const [, setImagenesGenerales] =
 
   useEffect(() => {
     cargarProductos()
-    cargarSecciones()
+    cargarCategorias()
   }, [])
-
-  // =====================================================
-  // VALIDAR SECCIÓN SELECCIONADA
-  // =====================================================
-
-  useEffect(() => {
-    if (
-      categoriaSeleccionada !== 'Todos' &&
-      !secciones.some(
-        seccion =>
-          seccion.nombre ===
-          categoriaSeleccionada
-      )
-    ) {
-      setCategoriaSeleccionada('Todos')
-    }
-  }, [
-    secciones,
-    categoriaSeleccionada
-  ])
 
   // =====================================================
   // CARGAR FOTOS DE PORTADA
@@ -427,33 +414,10 @@ async function cargarProductos() {
   // SECCIONES
   // =====================================================
 
-  async function cargarSecciones() {
-    const {
-      data,
-      error
-    } = await supabase
-      .from('Secciones')
-      .select(
-        'id, nombre, orden, activa'
-      )
-      .eq('activa', true)
-      .order('orden', {
-        ascending: true
-      })
-
-    if (error) {
-      console.error(
-        'ERROR SECCIONES:',
-        error
-      )
-
-      setSecciones([])
-      return
-    }
-
-    setSecciones(
-      (data || []) as Seccion[]
-    )
+  async function cargarCategorias() {
+    const { data, error } = await supabase.from('Categorias').select('id, nombre, parent_id, orden, activa').eq('activa', true).order('orden', { ascending: true }).order('id', { ascending: true })
+    if (error) { console.warn('CATEGORIAS JERÁRQUICAS NO DISPONIBLES:', error); setCategorias([]); return }
+    setCategorias((data || []) as Categoria[])
   }
 
   // =====================================================
@@ -1012,6 +976,11 @@ async function cargarProductos() {
       )
     }
 
+  const calcularPrecioFinal = (precioBase: number, producto: Producto | null = productoSeleccionado) => {
+    const descuento = Math.min(100, Math.max(0, Number(producto?.descuento_porcentaje || 0)))
+    return Number(precioBase || 0) * (1 - descuento / 100)
+  }
+
   // =====================================================
   // PRECIO ACTUAL
   // =====================================================
@@ -1027,10 +996,7 @@ async function cargarProductos() {
       if (
         variantes.length === 0
       ) {
-        return Number(
-          productoSeleccionado.price ||
-            0
-        )
+        return calcularPrecioFinal(productoSeleccionado.price, productoSeleccionado)
       }
 
       const varianteExacta =
@@ -1039,10 +1005,7 @@ async function cargarProductos() {
       if (
         varianteExacta
       ) {
-        return Number(
-          varianteExacta.precio ||
-            0
-        )
+        return calcularPrecioFinal(varianteExacta.precio, productoSeleccionado)
       }
 
       if (
@@ -1076,17 +1039,12 @@ async function cargarProductos() {
           if (
             precios.length > 0
           ) {
-            return Math.min(
-              ...precios
-            )
+            return calcularPrecioFinal(Math.min(...precios), productoSeleccionado)
           }
         }
       }
 
-      return Number(
-        productoSeleccionado.price ||
-          0
-      )
+      return calcularPrecioFinal(productoSeleccionado.price, productoSeleccionado)
     }
 
   // =====================================================
@@ -1648,24 +1606,22 @@ async function cargarProductos() {
               busqueda.toLowerCase()
             )
       )
-      .filter(
-        producto =>
-          categoriaSeleccionada ===
-            'Todos' ||
-          (
-            Array.isArray(
-              producto.category
-            )
-              ? producto.category
-              : producto.category
-                ? [
-                    producto.category
-                  ]
-                : []
-          ).includes(
-            categoriaSeleccionada
-          )
-      )
+      .filter(producto => {
+        if (categoriaSeleccionada === 'Todos') return true
+        const cats = Array.isArray(producto.category) ? producto.category : producto.category ? [producto.category] : []
+        const categoria = categorias.find(c => c.nombre === categoriaSeleccionada)
+        if (!categoria) return cats.includes(categoriaSeleccionada)
+        const descendientes = new Set<number>()
+        const buscarHijos = (padreId: number) => {
+          categorias.filter(c => c.parent_id === padreId).forEach(hijo => {
+            descendientes.add(hijo.id)
+            buscarHijos(hijo.id)
+          })
+        }
+        buscarHijos(categoria.id)
+        const nombresPermitidos = [categoria.nombre, ...categorias.filter(c => descendientes.has(c.id)).map(c => c.nombre)]
+        return nombresPermitidos.some(nombre => cats.includes(nombre))
+      })
 
   // =====================================================
   // FOTOS
@@ -1754,6 +1710,181 @@ async function cargarProductos() {
   // RENDER
   // =====================================================
 
+  const alternarCategoriaMenu = (categoriaId: number) => {
+    setCategoriasExpandida(actual => {
+      const siguiente = new Set(actual)
+      if (siguiente.has(categoriaId)) {
+        siguiente.delete(categoriaId)
+      } else {
+        siguiente.add(categoriaId)
+      }
+      return siguiente
+    })
+  }
+
+  const seleccionarCategoria = (nombre: string) => {
+    setCategoriaSeleccionada(nombre)
+    setMenuCategoriasAbierto(false)
+  }
+
+  function renderMenuCategorias(padreId: number | null, nivel = 0): any {
+    return categorias
+      .filter(c => c.parent_id === padreId)
+      .sort((a, b) => (Number(a.orden) || 0) - (Number(b.orden) || 0) || a.id - b.id)
+      .map(categoria => {
+        const hijos = categorias
+          .filter(c => c.parent_id === categoria.id)
+          .sort((a, b) => (Number(a.orden) || 0) - (Number(b.orden) || 0) || a.id - b.id)
+        const tieneHijos = hijos.length > 0
+        const expandida = categoriasExpandida.has(categoria.id)
+
+        return (
+          <div key={categoria.id} style={{ marginBottom: nivel === 0 ? '8px' : '5px' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                background: nivel === 0
+                  ? 'linear-gradient(135deg, #35543e 0%, #263d2d 100%)'
+                  : nivel === 1
+                    ? 'linear-gradient(135deg, #4b7355 0%, #3f6249 100%)'
+                    : 'linear-gradient(135deg, #5a8062 0%, #4b6f54 100%)',
+                borderRadius: '13px',
+                overflow: 'hidden',
+                border: '1px solid rgba(255,255,255,.13)',
+                boxShadow: '0 3px 10px rgba(0,0,0,.10)'
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  if (tieneHijos) {
+                    alternarCategoriaMenu(categoria.id)
+                  } else {
+                    seleccionarCategoria(categoria.nombre)
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '9px',
+                  textAlign: 'left',
+                  border: 0,
+                  background: 'transparent',
+                  padding: '13px 12px',
+                  paddingLeft: '12px',
+                  fontWeight: nivel === 0 ? 750 : 550,
+                  color: '#fff',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  letterSpacing: '.1px',
+                  transition: 'background .18s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(255,255,255,.08)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent'
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: nivel === 0 ? '7px' : '5px',
+                    height: nivel === 0 ? '7px' : '5px',
+                    borderRadius: '50%',
+                    background: nivel === 0 ? '#fff' : 'rgba(255,255,255,.65)',
+                    flex: '0 0 auto'
+                  }}
+                />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {categoria.nombre}
+                </span>
+              </button>
+
+              {tieneHijos && (
+                <button
+                  type="button"
+                  aria-label={expandida ? `Ocultar ${categoria.nombre}` : `Mostrar ${categoria.nombre}`}
+                  onClick={() => alternarCategoriaMenu(categoria.id)}
+                  style={{
+                    width: '42px',
+                    height: '42px',
+                    marginRight: '4px',
+                    border: 0,
+                    borderRadius: '9px',
+                    background: expandida ? 'rgba(255,255,255,.16)' : 'rgba(255,255,255,.07)',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: '20px',
+                    lineHeight: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all .18s ease'
+                  }}
+                >
+                  <span style={{ transform: expandida ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform .2s ease', display: 'block' }}>
+                    ▾
+                  </span>
+                </button>
+              )}
+            </div>
+
+            {tieneHijos && expandida && (
+              <div
+                style={{
+                  marginTop: '8px',
+                  marginLeft: 0,
+                  paddingLeft: 0,
+                  animation: 'luckepetCategoryOpen .18s ease'
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => seleccionarCategoria(categoria.nombre)}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    textAlign: 'left',
+                    border: '1px solid rgba(255,255,255,.14)',
+                    background: 'linear-gradient(135deg, #4b7355 0%, #3f6249 100%)',
+                    padding: '13px 12px',
+                    borderRadius: '13px',
+                    fontWeight: 550,
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    marginBottom: '8px',
+                    boxSizing: 'border-box',
+                    transition: 'background .18s ease, transform .18s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'linear-gradient(135deg, #557f5f 0%, #476e50 100%)'
+                    e.currentTarget.style.transform = 'translateX(2px)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'linear-gradient(135deg, #4b7355 0%, #3f6249 100%)'
+                    e.currentTarget.style.transform = 'translateX(0)'
+                  }}
+                >
+                  <span aria-hidden="true" style={{ fontSize: '12px' }}>●</span>
+                  <span>Ver todos los productos</span>
+                </button>
+
+                {renderMenuCategorias(categoria.id, nivel + 1)}
+              </div>
+            )}
+          </div>
+        )
+      })
+  }
+
   return (
     <div className="app">
       <Header
@@ -1771,15 +1902,121 @@ async function cargarProductos() {
         }
       />
 
-      <Navbar
-        secciones={secciones}
-        categoriaSeleccionada={
-          categoriaSeleccionada
+      <style>{`
+        @keyframes luckepetCategoryOpen {
+          from { opacity: 0; transform: translateY(-3px); }
+          to { opacity: 1; transform: translateY(0); }
         }
-        setCategoriaSeleccionada={
-          setCategoriaSeleccionada
-        }
-      />
+      `}</style>
+
+      {/* HAMBURGUESA DE CATEGORÍAS */}
+      <div style={{ position: 'fixed', left: 0, top: '92px', zIndex: 1000 }}>
+        <button
+          type="button"
+          onClick={() => setMenuCategoriasAbierto(v => !v)}
+          aria-label={menuCategoriasAbierto ? 'Cerrar categorías' : 'Abrir categorías'}
+          aria-expanded={menuCategoriasAbierto}
+          style={{
+            width: '56px',
+            height: '56px',
+            border: '1px solid rgba(255,255,255,.18)',
+            borderLeft: 'none',
+            borderRadius: '0 16px 16px 0',
+            background: 'linear-gradient(145deg, #35543e 0%, #263d2d 100%)',
+            color: '#fff',
+            boxShadow: '5px 6px 18px rgba(0,0,0,.20)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all .2s ease'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.width = '60px'
+            e.currentTarget.style.background = 'linear-gradient(145deg, #3e6048 0%, #263d2d 100%)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.width = '56px'
+            e.currentTarget.style.background = 'linear-gradient(145deg, #35543e 0%, #263d2d 100%)'
+          }}
+        >
+          <span
+            style={{
+              fontSize: '26px',
+              lineHeight: 1,
+              fontWeight: 700,
+              transform: menuCategoriasAbierto ? 'rotate(90deg)' : 'rotate(0deg)',
+              transition: 'transform .22s ease'
+            }}
+          >
+            ☰
+          </span>
+        </button>
+
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: '58px',
+            width: '320px',
+            height: 'min(72vh, calc(100vh - 155px))',
+            maxHeight: 'calc(100vh - 155px)',
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            overscrollBehaviorY: 'contain',
+            WebkitOverflowScrolling: 'touch',
+            background: 'linear-gradient(180deg, #263d2d 0%, #213428 100%)',
+            border: '1px solid rgba(255,255,255,.13)',
+            borderLeft: 'none',
+            borderRadius: '0 18px 18px 0',
+            boxShadow: '8px 12px 30px rgba(0,0,0,.22)',
+            padding: '12px',
+            scrollbarWidth: 'thin',
+            scrollbarColor: 'rgba(255,255,255,.25) transparent',
+            transform: menuCategoriasAbierto ? 'translateX(0)' : 'translateX(-315px)',
+            transition: 'transform .25s ease',
+            boxSizing: 'border-box'
+          }}
+        >
+          <div style={{ position: 'sticky', top: 0, zIndex: 2, background: 'linear-gradient(180deg, #263d2d 80%, rgba(38,61,45,0) 100%)', paddingBottom: '11px' }}>
+            <button
+              type="button"
+              onClick={() => seleccionarCategoria('Todos')}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                border: '1px solid rgba(255,255,255,.20)',
+                background: '#fff',
+                padding: '11px 12px',
+                borderRadius: '11px',
+                fontWeight: 800,
+                color: '#263d2d',
+                cursor: 'pointer',
+                boxShadow: '0 3px 10px rgba(0,0,0,.14)',
+                transition: 'transform .18s ease, box-shadow .18s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-1px)'
+                e.currentTarget.style.boxShadow = '0 5px 13px rgba(0,0,0,.18)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)'
+                e.currentTarget.style.boxShadow = '0 3px 10px rgba(0,0,0,.14)'
+              }}
+            >
+              <span aria-hidden="true">⌂</span>
+              <span>Todos los productos</span>
+            </button>
+          </div>
+
+          {categorias.length > 0 ? renderMenuCategorias(null) : (
+            <div style={{ color: '#fff', padding: '14px 8px', fontSize: '13px' }}>No hay categorías disponibles.</div>
+          )}
+        </div>
+      </div>
 
       {/* =================================================
           CARRITO
@@ -2420,13 +2657,10 @@ async function cargarProductos() {
                       </h3>
 
                       <div className="precio-carrito">
+                        {Number(producto.descuento_porcentaje || 0) > 0 && <span style={{ textDecoration: 'line-through', color: '#888', fontSize: '13px', marginRight: '6px' }}>${Number(producto.price || 0).toLocaleString('es-AR')}</span>}
                         <strong className="precio">
                           $
-                          {Number(
-                            producto.price
-                          ).toLocaleString(
-                            'es-AR'
-                          )}
+                          {calcularPrecioFinal(producto.price, producto).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                         </strong>
 
                         <button
@@ -2462,10 +2696,7 @@ async function cargarProductos() {
                               image:
                                 imagenPortada,
                               price:
-                                Number(
-                                  producto.price ||
-                                    0
-                                ),
+                                calcularPrecioFinal(producto.price, producto),
                               variante_id:
                                 null,
                               cantidad:
@@ -2754,10 +2985,9 @@ async function cargarProductos() {
                 </h1>
 
                 <div className="producto-precio">
-                  $
-                  {obtenerPrecioActual().toLocaleString(
-                    'es-AR'
-                  )}
+                  {Number(productoSeleccionado.descuento_porcentaje || 0) > 0 && !talleSeleccionado && <span style={{ textDecoration: 'line-through', color: '#888', fontSize: '14px', marginRight: '8px' }}>${Number(productoSeleccionado.price || 0).toLocaleString('es-AR')}</span>}
+                  ${obtenerPrecioActual().toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                  {Number(productoSeleccionado.descuento_porcentaje || 0) > 0 && <span style={{ marginLeft: '8px', fontSize: '13px', color: '#7b2d2d' }}>-{Number(productoSeleccionado.descuento_porcentaje)}%</span>}
                 </div>
 
                 {productoSeleccionado.description && (
@@ -2942,10 +3172,7 @@ async function cargarProductos() {
 
                     const precioSeleccionado =
                       varianteSeleccionada
-                        ? Number(
-                            varianteSeleccionada.precio ||
-                              0
-                          )
+                        ? calcularPrecioFinal(varianteSeleccionada.precio, productoSeleccionado)
                         : obtenerPrecioActual()
 
                     // La imagen que se guarda en el carrito

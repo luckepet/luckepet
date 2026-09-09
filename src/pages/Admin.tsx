@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 type Producto = {
@@ -8,11 +8,20 @@ type Producto = {
   name: string;
   description: string | null;
   price: number;
+  descuento_porcentaje?: number;
   image: string | null;
   category: string[] | null;
   stock: number;
   tiene_talle: boolean;
   talles: string[];
+};
+
+type Categoria = {
+  id: number;
+  nombre: string;
+  parent_id: number | null;
+  orden: number;
+  activa: boolean;
 };
 
 type ImagenProducto = {
@@ -80,25 +89,17 @@ type Visita = {
 
 type PeriodoEstadisticas = "hoy" | "7dias" | "30dias";
 
-type Seccion = { id: number; nombre: string; orden: number; activa: boolean; };
-
 const productoVacio = {
   name: "",
   description: "",
   price: 0,
+  descuento_porcentaje: 0,
   image: "",
   category: [] as string[],
   stock: 0,
   tiene_talle: false,
   talles: [] as string[],
 };
-
-const categoriasBase = [
-  "Perros",
-  "Gatos",
-  "Higiene",
-  "Accesorios",
-];
 
 function alternarCategoria(
   categorias: string[],
@@ -168,112 +169,94 @@ function Admin() {
   const [nuevoTalleEditando, setNuevoTalleEditando] = useState("");
 
   // ============================================================
-  // SECCIONES / CATEGORÍAS DINÁMICAS
+  // CATEGORÍAS JERÁRQUICAS
   // ============================================================
-  const [secciones, setSecciones] = useState<Seccion[]>([]);
-  const [nuevaCategoria, setNuevaCategoria] = useState("");
-  const [mostrarSecciones, setMostrarSecciones] = useState(false);
-  const [seccionEditando, setSeccionEditando] = useState<number | null>(null);
-  const [nombreSeccionEditando, setNombreSeccionEditando] = useState("");
-  const [guardandoSeccion, setGuardandoSeccion] = useState(false);
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [nuevaCategoriaJerarquica, setNuevaCategoriaJerarquica] = useState("");
+  const [nuevaSubcategoria, setNuevaSubcategoria] = useState("");
+  const [categoriaPadreNueva, setCategoriaPadreNueva] = useState<number | "">("");
+  const [guardandoCategoria, setGuardandoCategoria] = useState(false);
 
   const categoriasDisponibles = useMemo(() => {
     const categoriasDeProductos = productos.flatMap((producto) =>
       Array.isArray(producto.category) ? producto.category : producto.category ? [producto.category] : []
     );
     return Array.from(new Set([
-      ...categoriasBase,
-      ...secciones.map((seccion) => seccion.nombre),
+      ...categorias.map((categoria) => categoria.nombre),
       ...categoriasDeProductos,
     ])).filter(Boolean);
-  }, [productos, secciones]);
+  }, [productos, categorias]);
 
-  async function cargarSecciones() {
-    const { data, error } = await supabase.from("Secciones").select("id, nombre, orden, activa").order("orden", { ascending: true }).order("id", { ascending: true });
-    if (error) { console.error("ERROR CARGANDO SECCIONES:", error); return; }
-    const existentes = (data || []) as Seccion[];
-    const nombres = new Set(existentes.map((s) => s.nombre.toLowerCase()));
-    let siguienteOrden = existentes.reduce((m, s) => Math.max(m, Number(s.orden) || 0), 0) + 1;
-    for (const nombre of categoriasBase) {
-      if (nombres.has(nombre.toLowerCase())) continue;
-      const { data: creada, error: errorCreando } = await supabase.from("Secciones").insert({ nombre, orden: siguienteOrden, activa: true }).select("id, nombre, orden, activa").single();
-      if (errorCreando) { console.error(`ERROR CREANDO SECCIÓN ${nombre}:`, errorCreando); continue; }
-      if (creada) { existentes.push(creada as Seccion); nombres.add(nombre.toLowerCase()); siguienteOrden++; }
+  async function cargarCategorias() {
+    const { data, error } = await supabase
+      .from("Categorias")
+      .select("id, nombre, parent_id, orden, activa")
+      .eq("activa", true)
+      .order("orden", { ascending: true })
+      .order("id", { ascending: true });
+
+    if (error) {
+      console.warn("Categorias no disponible todavía. Ejecutá la migración SQL indicada.", error);
+      setCategorias([]);
+      return;
     }
-    existentes.sort((a,b) => Number(a.orden)-Number(b.orden) || Number(a.id)-Number(b.id));
-    setSecciones(existentes);
+
+    setCategorias((data || []) as Categoria[]);
   }
 
-  async function agregarCategoria() {
-    const nombre = nuevaCategoria.trim().replace(/\s+/g, " ");
-    if (!nombre) { alert("Escribí un nombre para la sección."); return; }
-    if (secciones.some((s) => s.nombre.toLowerCase() === nombre.toLowerCase())) { alert("Esa sección ya existe."); return; }
-    setGuardandoSeccion(true);
+  async function agregarCategoriaPrincipal() {
+    const nombre = nuevaCategoriaJerarquica.trim().replace(/\s+/g, " ");
+    if (!nombre) { alert("Escribí un nombre para la categoría."); return; }
+    if (categorias.some(c => c.parent_id === null && c.nombre.toLowerCase() === nombre.toLowerCase())) { alert("Esa categoría principal ya existe."); return; }
+    setGuardandoCategoria(true);
     try {
-      const siguienteOrden = secciones.reduce((m,s) => Math.max(m, Number(s.orden)||0), 0) + 1;
-      const { error } = await supabase.from("Secciones").insert({ nombre, orden: siguienteOrden, activa: true });
-      if (error) { console.error("ERROR AGREGANDO SECCIÓN:", error); alert(`No se pudo agregar la sección:\n\n${error.message}`); return; }
-      setNuevaCategoria(""); await cargarSecciones();
-    } finally { setGuardandoSeccion(false); }
+      const siguienteOrden = categorias.filter(c => c.parent_id === null).reduce((m,c) => Math.max(m, Number(c.orden)||0),0)+1;
+      const { error } = await supabase.from("Categorias").insert({ nombre, parent_id: null, orden: siguienteOrden, activa: true });
+      if (error) throw error;
+      setNuevaCategoriaJerarquica("");
+      await cargarCategorias();
+    } catch (error) {
+      console.error("ERROR AGREGANDO CATEGORÍA:", error);
+      alert(`No se pudo agregar la categoría:\n\n${error instanceof Error ? error.message : "Error desconocido"}`);
+    } finally { setGuardandoCategoria(false); }
   }
 
-  function iniciarEdicionSeccion(seccion: Seccion) { setSeccionEditando(seccion.id); setNombreSeccionEditando(seccion.nombre); }
-  function cancelarEdicionSeccion() { setSeccionEditando(null); setNombreSeccionEditando(""); }
-
-  async function guardarEdicionSeccion(seccion: Seccion) {
-    const nuevoNombre = nombreSeccionEditando.trim().replace(/\s+/g, " ");
-    if (!nuevoNombre) { alert("El nombre de la sección no puede estar vacío."); return; }
-    if (secciones.some((s) => s.id !== seccion.id && s.nombre.toLowerCase() === nuevoNombre.toLowerCase())) { alert("Ya existe otra sección con ese nombre."); return; }
-    setGuardandoSeccion(true);
+  async function agregarCategoriaJerarquica() {
+    const nombre = nuevaSubcategoria.trim().replace(/\s+/g, " ");
+    if (!nombre) { alert("Escribí un nombre para la subcategoría."); return; }
+    if (!categoriaPadreNueva) { alert("Elegí la categoría padre."); return; }
+    if (categorias.some(c => c.parent_id === Number(categoriaPadreNueva) && c.nombre.toLowerCase() === nombre.toLowerCase())) { alert("Esa subcategoría ya existe dentro de esa categoría."); return; }
+    setGuardandoCategoria(true);
     try {
-      const nombreAnterior = seccion.nombre;
-      const { error } = await supabase.from("Secciones").update({ nombre: nuevoNombre }).eq("id", seccion.id);
-      if (error) { console.error("ERROR EDITANDO SECCIÓN:", error); alert(`No se pudo editar la sección:\n\n${error.message}`); return; }
-      const afectados = productos.filter((p) => (Array.isArray(p.category) ? p.category : p.category ? [p.category] : []).includes(nombreAnterior));
-      for (const producto of afectados) {
-        const categorias = (Array.isArray(producto.category) ? producto.category : producto.category ? [producto.category] : []).map((c) => c === nombreAnterior ? nuevoNombre : c);
-        const { error: errorProducto } = await supabase.from("Productos").update({ category: categorias }).eq("id", producto.id);
-        if (errorProducto) console.error(`ERROR ACTUALIZANDO CATEGORÍA DEL PRODUCTO ${producto.id}:`, errorProducto);
-      }
-      cancelarEdicionSeccion(); await cargarSecciones(); await cargarProductos(); alert("Sección editada correctamente.");
-    } finally { setGuardandoSeccion(false); }
+      const hermanos = categorias.filter(c => c.parent_id === Number(categoriaPadreNueva));
+      const siguienteOrden = hermanos.reduce((m,c) => Math.max(m, Number(c.orden)||0),0)+1;
+      const { error } = await supabase.from("Categorias").insert({ nombre, parent_id: Number(categoriaPadreNueva), orden: siguienteOrden, activa: true });
+      if (error) throw error;
+      setNuevaSubcategoria("");
+      await cargarCategorias();
+    } catch (error) {
+      console.error("ERROR AGREGANDO SUBCATEGORÍA:", error);
+      alert(`No se pudo agregar la subcategoría:\n\n${error instanceof Error ? error.message : "Error desconocido"}`);
+    } finally { setGuardandoCategoria(false); }
   }
 
-  async function alternarActivaSeccion(seccion: Seccion) {
-    setGuardandoSeccion(true);
+  async function eliminarCategoriaJerarquica(categoria: Categoria) {
+    const hijos = categorias.filter(c => c.parent_id === categoria.id);
+    if (!window.confirm(hijos.length ? `"${categoria.nombre}" tiene ${hijos.length} subcategoría(s). También se eliminarán. ¿Continuar?` : `¿Eliminar "${categoria.nombre}"?`)) return;
+    setGuardandoCategoria(true);
     try {
-      const { error } = await supabase.from("Secciones").update({ activa: !seccion.activa }).eq("id", seccion.id);
-      if (error) { console.error("ERROR CAMBIANDO ESTADO DE SECCIÓN:", error); alert(`No se pudo cambiar el estado:\n\n${error.message}`); return; }
-      await cargarSecciones();
-    } finally { setGuardandoSeccion(false); }
+      const { error } = await supabase.from("Categorias").delete().eq("id", categoria.id);
+      if (error) throw error;
+      await cargarCategorias();
+    } catch (error) {
+      console.error("ERROR ELIMINANDO CATEGORÍA:", error);
+      alert(`No se pudo eliminar:\n\n${error instanceof Error ? error.message : "Error desconocido"}`);
+    } finally { setGuardandoCategoria(false); }
   }
 
-  async function eliminarCategoria(seccion: Seccion) {
-    const usados = productos.filter((p) => (Array.isArray(p.category) ? p.category : p.category ? [p.category] : []).includes(seccion.nombre));
-    if (usados.length > 0) { alert(`No se puede eliminar "${seccion.nombre}" porque hay ${usados.length} producto(s) asignado(s). Primero quitá esa sección de esos productos.`); return; }
-    if (!window.confirm(`¿Eliminar la sección "${seccion.nombre}"?`)) return;
-    setGuardandoSeccion(true);
-    try {
-      const { error } = await supabase.from("Secciones").delete().eq("id", seccion.id);
-      if (error) { console.error("ERROR ELIMINANDO SECCIÓN:", error); alert(`No se pudo eliminar la sección:\n\n${error.message}`); return; }
-      await cargarSecciones();
-    } finally { setGuardandoSeccion(false); }
-  }
-
-  async function moverSeccion(seccion: Seccion, direccion: -1 | 1) {
-    const ordenadas = [...secciones].sort((a,b) => Number(a.orden)-Number(b.orden) || Number(a.id)-Number(b.id));
-    const indice = ordenadas.findIndex((s) => s.id === seccion.id); const nuevoIndice = indice + direccion;
-    if (indice < 0 || nuevoIndice < 0 || nuevoIndice >= ordenadas.length) return;
-    const otra = ordenadas[nuevoIndice]; setGuardandoSeccion(true);
-    try {
-      const { error: e1 } = await supabase.from("Secciones").update({ orden: otra.orden }).eq("id", seccion.id); if (e1) throw e1;
-      const { error: e2 } = await supabase.from("Secciones").update({ orden: seccion.orden }).eq("id", otra.id); if (e2) throw e2;
-      await cargarSecciones();
-    } catch (error) { console.error("ERROR CAMBIANDO ORDEN DE SECCIÓN:", error); alert(`No se pudo cambiar el orden:\n\n${error instanceof Error ? error.message : "Error desconocido"}`); }
-    finally { setGuardandoSeccion(false); }
-  }
-
-  useEffect(() => { cargarSecciones(); }, []);
+  useEffect(() => {
+    cargarCategorias();
+  }, []);
 
   // ============================================================
   // ESTADÍSTICAS
@@ -300,19 +283,30 @@ function Admin() {
     null
   );
   const [seccionAbierta, setSeccionAbierta] =
-  useState<"productos" | "estadisticas" | "pedidos" | null>(
-    "productos"
-  );
+    useState<"productos" | "categorias" | "estadisticas" | "pedidos" | null>(
+      "productos"
+    );
   const [menuAbierto, setMenuAbierto] = useState(false);
+  const productosRef = useRef<HTMLDivElement | null>(null);
+  const categoriasRef = useRef<HTMLDivElement | null>(null);
+  const pedidosRef = useRef<HTMLDivElement | null>(null);
+  const estadisticasRef = useRef<HTMLDivElement | null>(null);
 
-function alternarSeccion(
-  seccion: "productos" | "estadisticas" | "pedidos"
-) {
-  setSeccionAbierta((actual) =>
-    actual === seccion ? null : seccion
-  );
-  setMenuAbierto(false);
-}
+  function alternarSeccion(
+    seccion: "productos" | "categorias" | "estadisticas" | "pedidos"
+  ) {
+    setSeccionAbierta(seccion);
+    setMenuAbierto(false);
+    window.setTimeout(() => {
+      const refs: Record<string, { current: HTMLDivElement | null }> = {
+        productos: productosRef,
+        categorias: categoriasRef,
+        pedidos: pedidosRef,
+        estadisticas: estadisticasRef,
+      };
+      refs[seccion]?.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  }
 
   function claveVariante(variante: Variante) {
     return `${variante.producto_id}__${variante.talle}__${variante.color}`;
@@ -1065,119 +1059,28 @@ function alternarSeccion(
     ordenInicial: number
   ) {
     const urls: string[] = [];
-
-    if (!files || files.length === 0) {
-      return urls;
-    }
-
+    if (!files?.length) return urls;
     setSubiendoImagen(true);
-
     try {
-      for (
-        let i = 0;
-        i < files.length;
-        i++
-      ) {
-        const file = files[i];
-
-        if (
-          !file.type.startsWith(
-            "image/"
-          )
-        ) {
-          alert(
-            `${file.name} no es una imagen válida.`
-          );
+      const archivos = files.filter(file => file.type.startsWith("image/"));
+      for (let i = 0; i < archivos.length; i++) {
+        const file = archivos[i];
+        const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
+        const nombreArchivo = `${productoId}-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
+        const { error: storageError } = await supabase.storage.from("PRODUCTOS").upload(nombreArchivo, file, { cacheControl: "3600", upsert: false });
+        if (storageError) { console.error("ERROR STORAGE:", storageError); continue; }
+        const { data } = supabase.storage.from("PRODUCTOS").getPublicUrl(nombreArchivo);
+        const url = data.publicUrl;
+        if (!url) continue;
+        const { error: dbError } = await supabase.from("ProductoImagenes").insert({ producto_id: productoId, image_url: url, orden: ordenInicial + i });
+        if (dbError) {
+          console.error("ERROR ProductoImagenes:", dbError);
+          await supabase.storage.from("PRODUCTOS").remove([nombreArchivo]);
           continue;
         }
-
-        const extension =
-          file.name
-            .split(".")
-            .pop()
-            ?.toLowerCase() ||
-          "jpg";
-
-        const nombreArchivo =
-          `${productoId}-${Date.now()}-${i}-${Math.random()
-            .toString(36)
-            .substring(2, 8)}.${extension}`;
-
-        const {
-          error: errorStorage,
-        } = await supabase.storage
-          .from("PRODUCTOS")
-          .upload(
-            nombreArchivo,
-            file,
-            {
-              cacheControl: "3600",
-              upsert: false,
-            }
-          );
-
-        if (errorStorage) {
-          console.error(
-            "ERROR STORAGE:",
-            errorStorage
-          );
-
-          alert(
-            `Error al subir "${file.name}": ${errorStorage.message}`
-          );
-
-          continue;
-        }
-
-        const {
-          data: publicUrlData,
-        } = supabase.storage
-          .from("PRODUCTOS")
-          .getPublicUrl(
-            nombreArchivo
-          );
-
-        const url =
-          publicUrlData.publicUrl;
-
-        if (!url) {
-          alert(
-            `No se pudo obtener la URL de ${file.name}.`
-          );
-
-          continue;
-        }
-
-        const {
-          error: errorBD,
-        } = await supabase
-          .from("ProductoImagenes")
-          .insert({
-            producto_id: productoId,
-            image_url: url,
-            orden:
-              ordenInicial + i,
-          });
-
-        if (errorBD) {
-          console.error(
-            "ERROR ProductoImagenes:",
-            errorBD
-          );
-
-          alert(
-            `La imagen "${file.name}" se subió, pero no se pudo guardar en la base de datos: ${errorBD.message}`
-          );
-
-          continue;
-        }
-
         urls.push(url);
       }
-    } finally {
-      setSubiendoImagen(false);
-    }
-
+    } finally { setSubiendoImagen(false); }
     return urls;
   }
 
@@ -1185,94 +1088,22 @@ function alternarSeccion(
   // SUBIR FOTOS DE VARIANTE
   // =========================
 
-  async function subirImagenesDeVariante(
-    files: File[],
-    varianteId: number
-  ) {
-    if (!files || files.length === 0) {
-      return;
-    }
-
-    for (
-      let i = 0;
-      i < files.length;
-      i++
-    ) {
+  async function subirImagenesDeVariante(files: File[], varianteId: number) {
+    if (!files?.length) return;
+    const { data: existentes } = await supabase.from("ProductoVarianteImagenes").select("orden").eq("variante_id", varianteId).order("orden", { ascending: false }).limit(1);
+    const ordenInicial = Number(existentes?.[0]?.orden ?? -1) + 1;
+    for (let i = 0; i < files.length; i++) {
       const file = files[i];
-
-      if (
-        !file.type.startsWith(
-          "image/"
-        )
-      ) {
-        continue;
-      }
-
-      const extension =
-        file.name
-          .split(".")
-          .pop()
-          ?.toLowerCase() ||
-        "jpg";
-
-      const nombreArchivo =
-        `variante-${varianteId}-${Date.now()}-${i}-${Math.random()
-          .toString(36)
-          .substring(2, 8)}.${extension}`;
-
-      const {
-        error: errorStorage,
-      } = await supabase.storage
-        .from("PRODUCTOS")
-        .upload(
-          nombreArchivo,
-          file,
-          {
-            cacheControl: "3600",
-            upsert: false,
-          }
-        );
-
-      if (errorStorage) {
-        console.error(
-          "ERROR AL SUBIR FOTO DE VARIANTE:",
-          errorStorage
-        );
-
-        continue;
-      }
-
-      const {
-        data: publicUrlData,
-      } = supabase.storage
-        .from("PRODUCTOS")
-        .getPublicUrl(
-          nombreArchivo
-        );
-
-      const url =
-        publicUrlData.publicUrl;
-
+      if (!file.type.startsWith("image/")) continue;
+      const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
+      const nombreArchivo = `variante-${varianteId}-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
+      const { error: storageError } = await supabase.storage.from("PRODUCTOS").upload(nombreArchivo, file, { cacheControl: "3600", upsert: false });
+      if (storageError) { console.error("ERROR AL SUBIR FOTO DE VARIANTE:", storageError); continue; }
+      const { data } = supabase.storage.from("PRODUCTOS").getPublicUrl(nombreArchivo);
+      const url = data.publicUrl;
       if (!url) continue;
-
-      const {
-        error: errorBD,
-      } = await supabase
-        .from(
-          "ProductoVarianteImagenes"
-        )
-        .insert({
-          variante_id: varianteId,
-          image_url: url,
-          orden: i,
-        });
-
-      if (errorBD) {
-        console.error(
-          "ERROR AL GUARDAR FOTO DE VARIANTE:",
-          errorBD
-        );
-      }
+      const { error: dbError } = await supabase.from("ProductoVarianteImagenes").insert({ variante_id: varianteId, image_url: url, orden: ordenInicial + i });
+      if (dbError) { console.error("ERROR AL GUARDAR FOTO DE VARIANTE:", dbError); await supabase.storage.from("PRODUCTOS").remove([nombreArchivo]); }
     }
   }
 
@@ -1294,6 +1125,8 @@ function alternarSeccion(
       );
       return;
     }
+
+    if (Number(nuevoProducto.descuento_porcentaje || 0) < 0 || Number(nuevoProducto.descuento_porcentaje || 0) > 100) { alert("El descuento debe estar entre 0% y 100%."); return; }
 
     if (nuevoProducto.stock < 0) {
       alert(
@@ -1336,6 +1169,7 @@ function alternarSeccion(
             Number(
               nuevoProducto.price
             ),
+          descuento_porcentaje: Math.min(100, Math.max(0, Number(nuevoProducto.descuento_porcentaje || 0))),
           image: "",
           category:
             nuevoProducto.category,
@@ -1521,96 +1355,95 @@ function alternarSeccion(
   // =========================
   // ELIMINAR IMAGEN
   // =========================
-async function eliminarImagen(
-  imagen: ImagenProducto
-) {
+async function eliminarImagen(imagen: ImagenProducto) {
   if (!editando) return;
-
-  const confirmar = window.confirm(
-    "¿Querés eliminar esta imagen?"
-  );
-
-  if (!confirmar) return;
+  if (!window.confirm("¿Querés eliminar esta imagen definitivamente?")) return;
 
   const productoId = editando.id;
+  const extraerRutaStorage = (url: string) => {
+    try {
+      const parsed = new URL(url);
+      const marker = "/storage/v1/object/public/PRODUCTOS/";
+      const index = parsed.pathname.indexOf(marker);
+      return index >= 0 ? decodeURIComponent(parsed.pathname.slice(index + marker.length)) : null;
+    } catch { return null; }
+  };
 
-  const { error: errorEliminar } =
-    await supabase
-      .from("ProductoImagenes")
-      .delete()
-      .eq("id", imagen.id);
+  // Primero verificamos que la fila exista y obtenemos la URL real guardada.
+  const { data: existente, error: errorConsulta } = await supabase
+    .from("ProductoImagenes")
+    .select("id, producto_id, image_url")
+    .eq("id", imagen.id)
+    .maybeSingle();
 
-  if (errorEliminar) {
-    console.error(
-      "ERROR AL ELIMINAR IMAGEN:",
-      errorEliminar
-    );
-
-    alert(
-      "No se pudo eliminar la imagen:\n\n" +
-      errorEliminar.message
-    );
-
+  if (errorConsulta) {
+    console.error("ERROR CONSULTANDO IMAGEN:", errorConsulta);
+    alert(`No se pudo comprobar la imagen:\n\n${errorConsulta.message}`);
     return;
   }
 
-  // QUITARLA INMEDIATAMENTE DE LA PANTALLA
-  const imagenesRestantes =
-    (imagenesProducto[productoId] || []).filter(
-      (i) => i.id !== imagen.id
-    );
-
-  setImagenesProducto((prev) => ({
-    ...prev,
-    [productoId]: imagenesRestantes,
-  }));
-
-  // SI ERA LA PRINCIPAL, PONER OTRA
-  if (
-    editando.image === imagen.image_url
-  ) {
-    const nuevaPrincipal =
-      imagenesRestantes[0]?.image_url || "";
-
-    const { error: errorPrincipal } =
-      await supabase
-        .from("Productos")
-        .update({
-          image: nuevaPrincipal,
-        })
-        .eq("id", productoId);
-
-    if (errorPrincipal) {
-      console.error(
-        "ERROR AL CAMBIAR IMAGEN PRINCIPAL:",
-        errorPrincipal
-      );
-    }
-
-    setEditando((actual) =>
-      actual
-        ? {
-            ...actual,
-            image: nuevaPrincipal,
-          }
-        : actual
-    );
-
-    setProductos((prev) =>
-      prev.map((producto) =>
-        producto.id === productoId
-          ? {
-              ...producto,
-              image: nuevaPrincipal,
-            }
-          : producto
-      )
-    );
+  if (!existente) {
+    // La fila ya no existe: sincronizamos la UI para que no vuelva a mostrarse.
+    setImagenesProducto(prev => ({ ...prev, [productoId]: (prev[productoId] || []).filter(i => i.id !== imagen.id) }));
+    alert("La imagen ya no estaba guardada en la base de datos.");
+    return;
   }
 
-  alert(
-    "Imagen eliminada correctamente."
-  );
+  const { data: eliminadas, error: errorEliminar } = await supabase
+    .from("ProductoImagenes")
+    .delete()
+    .eq("id", imagen.id)
+    .select("id, image_url");
+
+  if (errorEliminar) {
+    console.error("ERROR AL ELIMINAR IMAGEN:", errorEliminar);
+    alert(`No se pudo eliminar la imagen:\n\n${errorEliminar.message}`);
+    return;
+  }
+
+  // Si Supabase devolvió cero filas, normalmente es una política RLS que impide borrar.
+  if (!eliminadas || eliminadas.length === 0) {
+    alert("Supabase no eliminó la imagen. Revisá las políticas RLS de ProductoImagenes para permitir DELETE al usuario administrador.");
+    return;
+  }
+
+  const urlGuardada = (eliminadas[0] as any).image_url || existente.image_url || imagen.image_url;
+  const rutaStorage = extraerRutaStorage(urlGuardada);
+  if (rutaStorage) {
+    const { error: storageError } = await supabase.storage.from("PRODUCTOS").remove([rutaStorage]);
+    if (storageError) {
+      console.warn("La fila fue eliminada, pero no se pudo borrar el archivo de Storage:", storageError);
+    }
+  }
+
+  const imagenesRestantes = (imagenesProducto[productoId] || []).filter(i => i.id !== imagen.id);
+  setImagenesProducto(prev => ({ ...prev, [productoId]: imagenesRestantes }));
+
+  // Si era la imagen principal, actualizar Productos para que tampoco reaparezca al recargar.
+  if (editando.image === urlGuardada || editando.image === imagen.image_url) {
+    const nuevaPrincipal = imagenesRestantes[0]?.image_url || "";
+    const { error: errorPrincipal } = await supabase
+      .from("Productos")
+      .update({ image: nuevaPrincipal })
+      .eq("id", productoId);
+
+    if (errorPrincipal) {
+      console.error("ERROR AL CAMBIAR IMAGEN PRINCIPAL:", errorPrincipal);
+      alert(`La imagen se eliminó, pero no se pudo actualizar la principal:\n\n${errorPrincipal.message}`);
+    }
+
+    setEditando(actual => actual ? { ...actual, image: nuevaPrincipal } : actual);
+    setProductos(prev => prev.map(producto => producto.id === productoId ? { ...producto, image: nuevaPrincipal } : producto));
+  }
+
+  // Confirmación real: volvemos a consultar esa fila; si no existe, no puede reaparecer desde DB.
+  const { data: comprobacion } = await supabase.from("ProductoImagenes").select("id").eq("id", imagen.id).maybeSingle();
+  if (comprobacion) {
+    alert("La imagen no quedó eliminada de Supabase. Revisá las políticas RLS de DELETE.");
+    return;
+  }
+
+  alert("Imagen eliminada definitivamente.");
 }
 
   // =========================
@@ -1802,6 +1635,8 @@ async function eliminarImagen(
       return;
     }
 
+    if (Number(editando.descuento_porcentaje || 0) < 0 || Number(editando.descuento_porcentaje || 0) > 100) { alert("El descuento debe estar entre 0% y 100%."); return; }
+
     if (editando.stock < 0) {
       alert(
         "El stock no puede ser negativo."
@@ -1847,6 +1682,7 @@ async function eliminarImagen(
             Number(
               editando.price
             ),
+          descuento_porcentaje: Math.min(100, Math.max(0, Number(editando.descuento_porcentaje || 0))),
           image:
             editando.image || "",
           category:
@@ -2311,7 +2147,7 @@ async function eliminarImagen(
               .toLowerCase() ||
               "";
 
-          return (
+  return (
             nombre.includes(
               texto
             ) ||
@@ -2405,10 +2241,6 @@ async function eliminarImagen(
     (v) => v.evento === "checkout"
   ).length;
 
-  const pedidosRegistrados = visitasPeriodo.filter(
-    (v) => v.evento === "pedido"
-  ).length;
-
   const pedidosPeriodo = useMemo(() => {
     const ahora = new Date();
 
@@ -2436,6 +2268,10 @@ async function eliminarImagen(
       );
     });
   }, [pedidos, periodoEstadisticas]);
+
+  const pedidosRegistrados = pedidosPeriodo.filter((pedido) => pedido.estado === "confirmado").length;
+
+  const unidadesVendidas = pedidosPeriodo.filter((pedido) => pedido.estado === "confirmado").reduce((total, pedido) => total + (pedidoItems[pedido.id] || []).reduce((suma, item) => suma + Number(item.cantidad || 0), 0), 0);
 
   const facturacionPeriodo =
     pedidosPeriodo
@@ -2512,6 +2348,18 @@ async function eliminarImagen(
       )
       .slice(0, 5);
   }, [vistasProductoPeriodo]);
+
+  const productosMasVendidos = useMemo(() => {
+    const mapa: Record<number, { nombre: string; unidades: number; facturacion: number }> = {};
+    pedidosPeriodo.filter(p => p.estado === "confirmado").forEach(pedido => {
+      (pedidoItems[pedido.id] || []).forEach(item => {
+        if (!mapa[item.producto_id]) mapa[item.producto_id] = { nombre: item.nombre_producto, unidades: 0, facturacion: 0 };
+        mapa[item.producto_id].unidades += Number(item.cantidad || 0);
+        mapa[item.producto_id].facturacion += Number(item.subtotal || 0);
+      });
+    });
+    return Object.values(mapa).sort((a,b) => b.unidades - a.unidades || b.facturacion - a.facturacion).slice(0, 5);
+  }, [pedidosPeriodo, pedidoItems]);
 
   const fechasGrafico = useMemo(() => {
     const ahora = new Date();
@@ -2792,6 +2640,18 @@ async function eliminarImagen(
   // ADMIN
   // =========================
 
+  function renderArbolCategorias(padreId: number, nivel = 1): any {
+    return categorias.filter(c => c.parent_id === padreId).map(categoria => (
+      <div key={categoria.id} style={{ marginLeft: `${nivel * 18}px`, marginTop: "6px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px", background: nivel % 2 ? "#f5f7f2" : "#fafbf8", border: "1px solid #e5e8e1", borderRadius: "8px" }}>
+          <span style={{ flex: 1, color: "#444" }}>{"↳ ".repeat(Math.min(nivel, 3))}{categoria.nombre}</span>
+          <button type="button" onClick={() => eliminarCategoriaJerarquica(categoria)} disabled={guardandoCategoria} style={{ border: "none", background: "#f1dede", color: "#9b3333", borderRadius: "6px", cursor: "pointer", padding: "5px 8px", fontWeight: 700 }}>Eliminar</button>
+        </div>
+        {renderArbolCategorias(categoria.id, nivel + 1)}
+      </div>
+    ));
+  }
+
   const pedidosPendientes =
     pedidos.filter(
       (pedido) =>
@@ -2941,8 +2801,8 @@ async function eliminarImagen(
             style={{
               width: "100%", display: "flex", alignItems: "center",
               justifyContent: "space-between", gap: "12px", padding: "14px 16px",
-              borderRadius: "12px", border: "1px solid #d9dfd3", background: "#fff",
-              color: "#263d2d", cursor: "pointer", fontSize: "16px", fontWeight: 700,
+              borderRadius: "12px", border: "1px solid #d9dfd3", background: "#263d2d",
+              color: "#fff", cursor: "pointer", fontSize: "16px", fontWeight: 700,
               boxShadow: "0 4px 15px rgba(0,0,0,0.05)",
             }}
           >
@@ -2961,6 +2821,7 @@ async function eliminarImagen(
             }}>
               {[
                 { id: "productos" as const, icono: "📦", texto: "Productos" },
+                { id: "categorias" as const, icono: "☰", texto: "Categorías y subcategorías" },
                 { id: "pedidos" as const, icono: "🛒", texto: "Pedidos", contador: pedidosPendientes },
                 { id: "estadisticas" as const, icono: "📊", texto: "Estadísticas" },
               ].map((opcion) => (
@@ -3003,48 +2864,44 @@ async function eliminarImagen(
         </div>
 
         {/* =========================
-            SECCIONES / CATEGORÍAS
+            CATEGORÍAS Y SUBCATEGORÍAS
         ========================= */}
+        <div ref={categoriasRef} id="admin-categorias" style={{ display: seccionAbierta === "categorias" ? "block" : "none", scrollMarginTop: "24px" }}>
         <div style={{ background: "#fff", borderRadius: "14px", padding: "20px", marginBottom: "25px", boxShadow: "0 4px 20px rgba(0,0,0,0.06)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-            <div>
-              <h2 style={{ margin: 0, color: "#263d2d" }}>Secciones de la tienda</h2>
-              <p style={{ margin: "5px 0 0", color: "#666", fontSize: "14px" }}>Creá, editá, activá, desactivá y ordená las secciones de tu tienda.</p>
-            </div>
-            <button type="button" onClick={() => setMostrarSecciones((v) => !v)} style={{ ...buttonStyle, background: "#e5eadf", color: "#263d2d" }}>{mostrarSecciones ? "Ocultar" : "Administrar secciones"}</button>
+          <h2 style={{ margin: 0, color: "#263d2d" }}>Categorías y subcategorías</h2>
+          <p style={{ margin: "5px 0 0", color: "#666", fontSize: "14px" }}>Creá categorías principales y después agregales todas las subcategorías que necesites.</p>
+          {categorias.length === 0 && <div style={{ marginTop: "15px", padding: "12px 14px", background: "#fff7e6", border: "1px solid #ead7aa", borderRadius: "9px", color: "#6b571e", fontSize: "14px" }}>No hay categorías jerárquicas cargadas. Ejecutá primero <strong>LuckePet_migracion_supabase.sql</strong> en Supabase.</div>}
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "15px" }}>
+            <input value={nuevaCategoriaJerarquica} onChange={e => setNuevaCategoriaJerarquica(e.target.value)} onKeyDown={e => { if(e.key === "Enter") agregarCategoriaPrincipal(); }} placeholder="Nueva categoría principal" style={{ ...inputStyle, flex: 1, minWidth: "230px" }} disabled={guardandoCategoria} />
+            <button type="button" onClick={agregarCategoriaPrincipal} disabled={guardandoCategoria} style={{ ...buttonStyle, background: "#263d2d", color: "#fff" }}>+ Categoría</button>
           </div>
-          {mostrarSecciones && <div style={{ marginTop: "18px" }}>
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "16px" }}>
-              <input value={nuevaCategoria} onChange={(e) => setNuevaCategoria(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") agregarCategoria(); }} placeholder="Ej: Ofertas, Novedades, Camitas..." style={{ ...inputStyle, flex: 1, minWidth: "240px" }} disabled={guardandoSeccion} />
-              <button type="button" onClick={agregarCategoria} disabled={guardandoSeccion} style={{ ...buttonStyle, background: "#263d2d", color: "#fff" }}>+ Agregar sección</button>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              {secciones.map((seccion, indice) => <div key={seccion.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px", background: seccion.activa ? "#f5f7f2" : "#f1f1f1", border: "1px solid #dfe5db", borderRadius: "9px", flexWrap: "wrap" }}>
-                {seccionEditando === seccion.id ? <>
-                  <input value={nombreSeccionEditando} onChange={(e) => setNombreSeccionEditando(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") guardarEdicionSeccion(seccion); if (e.key === "Escape") cancelarEdicionSeccion(); }} autoFocus style={{ ...inputStyle, flex: 1, minWidth: "220px" }} />
-                  <button type="button" onClick={() => guardarEdicionSeccion(seccion)} disabled={guardandoSeccion} style={{ ...buttonStyle, background: "#263d2d", color: "#fff" }}>Guardar</button>
-                  <button type="button" onClick={cancelarEdicionSeccion} disabled={guardandoSeccion} style={{ ...buttonStyle, background: "#eee", color: "#333" }}>Cancelar</button>
-                </> : <>
-                  <span style={{ minWidth: "24px", color: "#777", fontSize: "13px" }}>{indice + 1}.</span>
-                  <span style={{ fontWeight: 600, color: "#263d2d", flex: 1, minWidth: "150px" }}>{seccion.nombre}</span>
-                  <span style={{ fontSize: "12px", padding: "4px 8px", borderRadius: "20px", background: seccion.activa ? "#dce9d8" : "#e5e5e5", color: seccion.activa ? "#263d2d" : "#777" }}>{seccion.activa ? "Visible" : "Oculta"}</span>
-                  <button type="button" onClick={() => moverSeccion(seccion, -1)} disabled={guardandoSeccion || indice === 0} style={{ ...buttonStyle, padding: "7px 10px", background: "#e5eadf", color: "#263d2d", opacity: indice === 0 ? 0.45 : 1 }}>↑</button>
-                  <button type="button" onClick={() => moverSeccion(seccion, 1)} disabled={guardandoSeccion || indice === secciones.length - 1} style={{ ...buttonStyle, padding: "7px 10px", background: "#e5eadf", color: "#263d2d", opacity: indice === secciones.length - 1 ? 0.45 : 1 }}>↓</button>
-                  <button type="button" onClick={() => iniciarEdicionSeccion(seccion)} disabled={guardandoSeccion} style={{ ...buttonStyle, padding: "7px 11px", background: "#263d2d", color: "#fff" }}>Editar</button>
-                  <button type="button" onClick={() => alternarActivaSeccion(seccion)} disabled={guardandoSeccion} style={{ ...buttonStyle, padding: "7px 11px", background: "#e5eadf", color: "#263d2d" }}>{seccion.activa ? "Ocultar" : "Mostrar"}</button>
-                  <button type="button" onClick={() => eliminarCategoria(seccion)} disabled={guardandoSeccion} style={{ border: "none", background: "#f1dede", color: "#9b3333", borderRadius: "6px", cursor: "pointer", padding: "8px 11px", fontWeight: 700 }}>Eliminar</button>
-                </>}
-              </div>)}
-              {secciones.length === 0 && <p style={{ margin: 0, color: "#666" }}>No hay secciones cargadas todavía.</p>}
-            </div>
-          </div>}
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "10px" }}>
+            <select value={categoriaPadreNueva} onChange={e => setCategoriaPadreNueva(e.target.value ? Number(e.target.value) : "")} style={{ ...inputStyle, maxWidth: "300px" }} disabled={guardandoCategoria}>
+              <option value="">Elegí categoría padre...</option>
+              {categorias.map(c => <option key={c.id} value={c.id}>{c.parent_id === null ? c.nombre : `↳ ${c.nombre}`}</option>)}
+            </select>
+            <input value={nuevaSubcategoria} onChange={e => setNuevaSubcategoria(e.target.value)} onKeyDown={e => { if(e.key === "Enter") agregarCategoriaJerarquica(); }} placeholder="Nueva subcategoría" style={{ ...inputStyle, flex: 1, minWidth: "230px" }} disabled={guardandoCategoria} />
+            <button type="button" onClick={agregarCategoriaJerarquica} disabled={guardandoCategoria} style={{ ...buttonStyle, background: "#e5eadf", color: "#263d2d" }}>+ Subcategoría</button>
+          </div>
+          <div style={{ marginTop: "18px" }}>
+            {categorias.filter(c => c.parent_id === null).map(parent => (
+              <div key={parent.id} style={{ border: "1px solid #dfe5db", borderRadius: "10px", padding: "10px", marginBottom: "8px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <strong style={{ flex: 1, color: "#263d2d" }}>{parent.nombre}</strong>
+                  <button type="button" onClick={() => eliminarCategoriaJerarquica(parent)} disabled={guardandoCategoria} style={{ border: "none", background: "#f1dede", color: "#9b3333", borderRadius: "6px", cursor: "pointer", padding: "5px 8px", fontWeight: 700 }}>Eliminar</button>
+                </div>
+                {renderArbolCategorias(parent.id)}
+              </div>
+            ))}
+          </div>
+        </div>
         </div>
 
         {/* =========================
             ESTADÍSTICAS
         ========================= */}
 
-        <div style={{ display: seccionAbierta === "estadisticas" ? "block" : "none" }}>
+        <div ref={estadisticasRef} id="admin-estadisticas" style={{ display: seccionAbierta === "estadisticas" ? "block" : "none", scrollMarginTop: "24px" }}>
         <div
           style={{
             background: "#fff",
@@ -3220,8 +3077,12 @@ async function eliminarImagen(
                     valor: checkouts,
                   },
                   {
-                    titulo: "Pedidos",
+                    titulo: "Pedidos confirmados",
                     valor: pedidosRegistrados,
+                  },
+                  {
+                    titulo: "Unidades vendidas",
+                    valor: unidadesVendidas,
                   },
                   {
                     titulo: "Facturación",
@@ -3288,6 +3149,15 @@ async function eliminarImagen(
                     </div>
                   )
                 )}
+              </div>
+
+              <div style={{ background: "#f8f8f4", borderRadius: "10px", padding: "15px", marginBottom: "15px", border: "1px solid #e5e5df" }}>
+                <h3 style={{ marginTop: 0, color: "#263d2d" }}>Productos más vendidos</h3>
+                {productosMasVendidos.length === 0 ? <p style={{ color: "#777" }}>Todavía no hay ventas confirmadas en este período.</p> : productosMasVendidos.map((p, i) => (
+                  <div key={`${p.nombre}-${i}`} style={{ display: "flex", justifyContent: "space-between", gap: "12px", padding: "9px 0", borderBottom: i < productosMasVendidos.length - 1 ? "1px solid #ddd" : "none" }}>
+                    <span>{p.nombre}</span><strong>{p.unidades} u. · ${p.facturacion.toLocaleString("es-AR")}</strong>
+                  </div>
+                ))}
               </div>
 
               {/* GRÁFICO */}
@@ -3828,7 +3698,7 @@ async function eliminarImagen(
             PEDIDOS
         ========================= */}
 
-        <div style={{ display: seccionAbierta === "pedidos" ? "block" : "none" }}>
+        <div ref={pedidosRef} id="admin-pedidos" style={{ display: seccionAbierta === "pedidos" ? "block" : "none", scrollMarginTop: "24px" }}>
         <div
           style={{
             background: "#fff",
@@ -4434,7 +4304,7 @@ async function eliminarImagen(
             BUSCADOR
         ========================= */}
 
-        <div style={{ display: seccionAbierta === "productos" ? "block" : "none" }}>
+        <div ref={productosRef} id="admin-productos" style={{ display: seccionAbierta === "productos" ? "block" : "none", scrollMarginTop: "24px" }}>
         <div
           style={{
             background: "#fff",
@@ -4585,6 +4455,12 @@ async function eliminarImagen(
                   }
                   style={inputStyle}
                 />
+              </div>
+
+              <div>
+                <label style={labelStyle}>Descuento (%)</label>
+                <input type="number" min="0" max="100" step="1" value={nuevoProducto.descuento_porcentaje || 0} onChange={(e) => setNuevoProducto({ ...nuevoProducto, descuento_porcentaje: Number(e.target.value) })} style={inputStyle} />
+                <small style={{ display: "block", marginTop: "5px", color: "#777" }}>Precio final: ${Math.round(Number(nuevoProducto.price || 0) * (1 - Number(nuevoProducto.descuento_porcentaje || 0) / 100)).toLocaleString("es-AR")}</small>
               </div>
 
               <div>
@@ -5260,7 +5136,7 @@ async function eliminarImagen(
               display:
                 "grid",
               gridTemplateColumns:
-                "repeat(auto-fit, minmax(280px, 1fr))",
+                "repeat(auto-fit, minmax(210px, 1fr))",
               gap:
                 "18px",
             }}
@@ -5326,7 +5202,7 @@ onDragEnd={() => {
                     <div
                       style={{
                         height:
-                          "220px",
+                          "165px",
                         background:
                           "#f5f5f5",
                         display:
@@ -6278,7 +6154,7 @@ onDragEnd={() => {
                                   clave
                                 ] || [];
 
-                              return (
+  return (
                                 <div
                                   key={
                                     variante.id ||
