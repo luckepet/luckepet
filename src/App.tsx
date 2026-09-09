@@ -19,6 +19,7 @@ type Seccion = {
 type Producto = {
   id: number
   name: string
+  orden: number
   description: string | null
   price: number
   image: string | null
@@ -394,29 +395,33 @@ const [, setImagenesGenerales] =
   // PRODUCTOS
   // =====================================================
 
-  async function cargarProductos() {
-    const {
-      data,
+async function cargarProductos() {
+  const {
+    data,
+    error
+  } = await supabase
+    .from('Productos')
+    .select('*')
+    .order('orden', {
+      ascending: true,
+      nullsFirst: false
+    })
+    .order('id', {
+      ascending: false
+    })
+
+  if (error) {
+    console.error(
+      'ERROR PRODUCTOS:',
       error
-    } = await supabase
-      .from('Productos')
-      .select('*')
-      .order('id', {
-        ascending: false
-      })
-
-    if (error) {
-      console.error(
-        'ERROR PRODUCTOS:',
-        error
-      )
-      return
-    }
-
-    setProductos(
-      (data || []) as Producto[]
     )
+    return
   }
+
+  setProductos(
+    (data || []) as Producto[]
+  )
+}
 
   // =====================================================
   // SECCIONES

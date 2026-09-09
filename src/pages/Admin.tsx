@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase";
 
 type Producto = {
   id: number;
+  orden?: number;
   created_at?: string;
   name: string;
   description: string | null;
@@ -116,6 +117,9 @@ function Admin() {
   const [imagenesProducto, setImagenesProducto] = useState<
     Record<number, ImagenProducto[]>
   >({});
+
+  const [productoArrastrado, setProductoArrastrado] = useState<number | null>(null);
+  const [imagenArrastrada, setImagenArrastrada] = useState<number | null>(null);
 
   const [sesion, setSesion] = useState<any>(null);
   const [cargandoSesion, setCargandoSesion] = useState(true);
@@ -414,6 +418,7 @@ function alternarSeccion(
     const { data, error } = await supabase
       .from("Productos")
       .select("*")
+      .order("orden", { ascending: true, nullsFirst: false })
       .order("id", { ascending: false });
 
     if (error) {
@@ -1344,6 +1349,10 @@ function alternarSeccion(
             nuevoProducto.tiene_talle
               ? nuevoProducto.talles
               : [],
+          orden:
+            productos.length > 0
+              ? Math.max(...productos.map((p) => Number(p.orden) || 0)) + 1
+              : 1,
         })
         .select()
         .single();
@@ -1512,77 +1521,204 @@ function alternarSeccion(
   // =========================
   // ELIMINAR IMAGEN
   // =========================
+async function eliminarImagen(
+  imagen: ImagenProducto
+) {
+  if (!editando) return;
 
-  async function eliminarImagen(
-    imagen: ImagenProducto
-  ) {
-    if (!editando) return;
+  const confirmar = window.confirm(
+    "¿Querés eliminar esta imagen?"
+  );
 
-    const confirmar =
-      window.confirm(
-        "¿Querés eliminar esta imagen?"
-      );
+  if (!confirmar) return;
 
-    if (!confirmar) return;
+  const productoId = editando.id;
 
-    const {
-      error,
-    } = await supabase
+  const { error: errorEliminar } =
+    await supabase
       .from("ProductoImagenes")
       .delete()
-      .eq(
-        "id",
-        imagen.id
-      );
+      .eq("id", imagen.id);
 
-    if (error) {
-      console.error(
-        "ERROR AL ELIMINAR IMAGEN:",
-        error
-      );
+  if (errorEliminar) {
+    console.error(
+      "ERROR AL ELIMINAR IMAGEN:",
+      errorEliminar
+    );
 
-      alert(
-        "No se pudo eliminar la imagen."
-      );
+    alert(
+      "No se pudo eliminar la imagen:\n\n" +
+      errorEliminar.message
+    );
 
-      return;
-    }
+    return;
+  }
 
-    if (
-      editando.image ===
-      imagen.image_url
-    ) {
-      const imagenesRestantes =
-        imagenesProducto[
-          editando.id
-        ]?.filter(
-          (i) =>
-            i.id !== imagen.id
-        ) || [];
+  // QUITARLA INMEDIATAMENTE DE LA PANTALLA
+  const imagenesRestantes =
+    (imagenesProducto[productoId] || []).filter(
+      (i) => i.id !== imagen.id
+    );
 
-      const nuevaPrincipal =
-        imagenesRestantes[0]
-          ?.image_url || "";
+  setImagenesProducto((prev) => ({
+    ...prev,
+    [productoId]: imagenesRestantes,
+  }));
 
+  // SI ERA LA PRINCIPAL, PONER OTRA
+  if (
+    editando.image === imagen.image_url
+  ) {
+    const nuevaPrincipal =
+      imagenesRestantes[0]?.image_url || "";
+
+    const { error: errorPrincipal } =
       await supabase
         .from("Productos")
         .update({
-          image:
-            nuevaPrincipal,
+          image: nuevaPrincipal,
         })
-        .eq(
-          "id",
-          editando.id
-        );
+        .eq("id", productoId);
 
-      setEditando({
-        ...editando,
-        image:
-          nuevaPrincipal,
-      });
+    if (errorPrincipal) {
+      console.error(
+        "ERROR AL CAMBIAR IMAGEN PRINCIPAL:",
+        errorPrincipal
+      );
     }
 
-    await cargarProductos();
+    setEditando((actual) =>
+      actual
+        ? {
+            ...actual,
+            image: nuevaPrincipal,
+          }
+        : actual
+    );
+
+    setProductos((prev) =>
+      prev.map((producto) =>
+        producto.id === productoId
+          ? {
+              ...producto,
+              image: nuevaPrincipal,
+            }
+          : producto
+      )
+    );
+  }
+
+  alert(
+    "Imagen eliminada correctamente."
+  );
+}
+
+  // =========================
+  // ORDEN MANUAL DE PRODUCTOS
+  // =========================
+
+ async function reordenarProductos(productoDestinoId: number) {
+  if (
+    productoArrastrado === null ||
+    productoArrastrado === productoDestinoId
+  ) {
+    return;
+  }
+
+  const ordenados = [...productos].sort(
+    (a, b) =>
+      (Number(a.orden) || 0) -
+        (Number(b.orden) || 0) ||
+      a.id - b.id
+  );
+
+  const origen = ordenados.findIndex(
+    (p) => p.id === productoArrastrado
+  );
+
+  const destino = ordenados.findIndex(
+    (p) => p.id === productoDestinoId
+  );
+
+  if (origen < 0 || destino < 0) {
+    setProductoArrastrado(null);
+    return;
+  }
+
+  // Movemos visualmente el producto
+  const [movido] = ordenados.splice(origen, 1);
+
+  ordenados.splice(destino, 0, movido);
+
+  // Actualizamos la pantalla inmediatamente
+  setProductos(ordenados);
+
+  setProductoArrastrado(null);
+
+  // Guardamos los nuevos órdenes EN PARALELO
+  const actualizaciones = ordenados.map(
+    (producto, indice) =>
+      supabase
+        .from("Productos")
+        .update({
+          orden: indice + 1,
+        })
+        .eq("id", producto.id)
+  );
+
+  const resultados = await Promise.all(
+    actualizaciones
+  );
+
+  const error = resultados.find(
+    (resultado) => resultado.error
+  )?.error;
+
+  if (error) {
+    console.error(
+      "ERROR GUARDANDO ORDEN DE PRODUCTOS:",
+      error
+    );
+
+    alert(
+      `No se pudo guardar el orden:\n\n${error.message}`
+    );
+  }
+}
+
+  // =========================
+  // ORDEN MANUAL DE IMÁGENES
+  // =========================
+
+  async function reordenarImagenes(productoId: number, imagenDestinoId: number) {
+    if (imagenArrastrada === null || imagenArrastrada === imagenDestinoId) return;
+
+    const actuales = [...(imagenesProducto[productoId] || [])].sort(
+      (a, b) => Number(a.orden) - Number(b.orden) || (a.id || 0) - (b.id || 0)
+    );
+    const origen = actuales.findIndex((i) => i.id === imagenArrastrada);
+    const destino = actuales.findIndex((i) => i.id === imagenDestinoId);
+    if (origen < 0 || destino < 0) return;
+
+    const [movida] = actuales.splice(origen, 1);
+    actuales.splice(destino, 0, movida);
+
+    setImagenesProducto((prev) => ({ ...prev, [productoId]: actuales }));
+    setImagenArrastrada(null);
+
+    for (let i = 0; i < actuales.length; i++) {
+      if (!actuales[i].id) continue;
+      const { error } = await supabase
+        .from("ProductoImagenes")
+        .update({ orden: i })
+        .eq("id", actuales[i].id);
+      if (error) {
+        console.error("ERROR GUARDANDO ORDEN DE IMÁGENES:", error);
+        alert(`No se pudo guardar el orden de las imágenes:\n\n${error.message}`);
+        await cargarProductos();
+        return;
+      }
+    }
   }
 
   // =========================
@@ -5136,6 +5272,46 @@ function alternarSeccion(
                     key={
                       producto.id
                     }
+                    draggable={!busqueda.trim()}
+                  onDragStart={(e) => {
+  if (busqueda.trim()) return;
+
+  setProductoArrastrado(producto.id);
+
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData(
+    "text/plain",
+    String(producto.id)
+  );
+}}
+
+onDragOver={(e) => {
+  if (busqueda.trim()) return;
+
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "move";
+}}
+
+onDrop={(e) => {
+  e.preventDefault();
+
+  if (busqueda.trim()) return;
+
+  const idArrastrado = Number(
+    e.dataTransfer.getData("text/plain")
+  );
+
+  if (!idArrastrado) return;
+
+  setProductoArrastrado(idArrastrado);
+
+  void reordenarProductos(producto.id);
+}}
+
+onDragEnd={() => {
+  setProductoArrastrado(null);
+}}
+                    title={!busqueda.trim() ? "Arrastrá para cambiar el orden" : "Quitá la búsqueda para ordenar"}
                     style={{
                       background:
                         "#fff",
@@ -5686,12 +5862,25 @@ function alternarSeccion(
                     imagenesProducto[
                       editando.id
                     ] || []
+                  ).sort(
+                    (a, b) => Number(a.orden) - Number(b.orden) || (a.id || 0) - (b.id || 0)
                   ).map(
                     (imagen) => (
                       <div
                         key={
                           imagen.id
                         }
+                        draggable
+                        onDragStart={() => {
+                          if (imagen.id) setImagenArrastrada(imagen.id);
+                        }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (imagen.id) void reordenarImagenes(editando.id, imagen.id);
+                        }}
+                        onDragEnd={() => setImagenArrastrada(null)}
+                        title="Arrastrá para cambiar el orden"
                         style={{
                           width:
                             "100px",
@@ -5813,6 +6002,8 @@ function alternarSeccion(
                     "1px solid #e5e5e5",
                 }}
               >
+                <div style={{ marginBottom: "10px", color: "#666", fontSize: "13px" }}>Arrastrá las imágenes para ponerlas en el orden que quieras.</div>
+
                 <label
                   style={{
                     display:
