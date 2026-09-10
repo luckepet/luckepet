@@ -3,7 +3,7 @@ function Footer() {
     <footer className="footer">
       <h3>🐾 LuckePet</h3>
       <p>Tu tienda online para perros y gatos.</p>
-      <p>📧 Próximamente: contacto@luckepet.com.ar</p>
+      <p>📧 luckepet1@gmail.com</p>
       <p>© 2026 LuckePet - Todos los derechos reservados.</p>
     </footer>
   )

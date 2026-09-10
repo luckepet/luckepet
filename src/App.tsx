@@ -123,7 +123,25 @@ const registrarEvento = async (
 
 function App() {
   const [productos, setProductos] =
-    useState<Producto[]>([])
+    useState<Producto[]>(() => {
+      try {
+        const guardados = localStorage.getItem('luckepet_productos_cache')
+        return guardados
+          ? (JSON.parse(guardados) as Producto[])
+          : []
+      } catch {
+        return []
+      }
+    })
+
+  const [productosCargados, setProductosCargados] =
+    useState(() => {
+      try {
+        return !!localStorage.getItem('luckepet_productos_cache')
+      } catch {
+        return false
+      }
+    })
 
   const [categorias, setCategorias] =
     useState<Categoria[]>([])
@@ -383,32 +401,52 @@ const [, setImagenesGenerales] =
   // =====================================================
 
 async function cargarProductos() {
-  const {
-    data,
-    error
-  } = await supabase
-    .from('Productos')
-    .select('*')
-    .order('orden', {
-      ascending: true,
-      nullsFirst: false
-    })
-    .order('id', {
-      ascending: false
-    })
+    try {
+      const {
+        data,
+        error
+      } = await supabase
+        .from('Productos')
+        .select('*')
+        .order('orden', {
+          ascending: true,
+          nullsFirst: false
+        })
+        .order('id', {
+          ascending: false
+        })
 
-  if (error) {
-    console.error(
-      'ERROR PRODUCTOS:',
-      error
-    )
-    return
+      if (error) {
+        console.error(
+          'ERROR PRODUCTOS:',
+          error
+        )
+        return
+      }
+
+      const productosActualizados =
+        (data || []) as Producto[]
+
+      // Guardamos la última lista válida. En la próxima apertura
+      // se muestra inmediatamente mientras Supabase actualiza.
+      try {
+        localStorage.setItem(
+          'luckepet_productos_cache',
+          JSON.stringify(productosActualizados)
+        )
+      } catch {
+        // Si el navegador no permite guardar caché, no afecta la tienda.
+      }
+
+      setProductos(productosActualizados)
+      setProductosCargados(true)
+    } catch (error) {
+      console.error(
+        'ERROR CARGANDO PRODUCTOS:',
+        error
+      )
+    }
   }
-
-  setProductos(
-    (data || []) as Producto[]
-  )
-}
 
   // =====================================================
   // SECCIONES
@@ -1909,6 +1947,20 @@ async function cargarProductos() {
         }
       `}</style>
 
+      {/* CERRAR CATEGORÍAS AL TOCAR FUERA DEL PANEL */}
+      {menuCategoriasAbierto && (
+        <div
+          aria-hidden="true"
+          onClick={() => setMenuCategoriasAbierto(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 999,
+            background: 'transparent'
+          }}
+        />
+      )}
+
       {/* HAMBURGUESA DE CATEGORÍAS */}
       <div style={{ position: 'fixed', left: 0, top: '92px', zIndex: 1000 }}>
         <button
@@ -2529,7 +2581,7 @@ async function cargarProductos() {
 
       <section className="productos">
         <div className="tarjetas">
-          {productosFiltrados.length === 0 ? (
+          {!productosCargados ? null : productosFiltrados.length === 0 ? (
             <div className="sin-productos">
               <h3>
                 🐾 No encontramos
