@@ -4906,27 +4906,89 @@ async function eliminarImagen(imagen: ImagenProducto) {
 
                         {/* FOTO DEL TALLE/MODELO CUANDO NO TIENE COLOR */}
                         {(coloresPorTalle[talle] || []).length === 0 && (
-                          <div style={{ marginBottom: "15px" }}>
-                            <label style={{ ...labelStyle, fontSize: "13px" }}>
-                              Foto de este talle/modelo
+                          <div
+                            style={{
+                              marginBottom: "15px",
+                              padding: "12px",
+                              border: "1px solid #ddd",
+                              borderRadius: "10px",
+                              background: "#fafafa",
+                            }}
+                          >
+                            <label
+                              style={{
+                                ...labelStyle,
+                                fontSize: "13px",
+                                display: "block",
+                                marginBottom: "8px",
+                              }}
+                            >
+                              📷 Foto de este talle/modelo
                             </label>
+
                             <input
                               type="file"
-                              accept="image/*"
+                              accept="image/jpeg,image/png,image/webp,image/gif"
                               multiple
-                              onChange={(e) =>
-                                seleccionarFotosColor(
-                                  talle,
-                                  "",
-                                  Array.from(e.target.files || [])
-                                )
-                              }
-                              style={inputStyle}
+                              onChange={(e) => {
+                                const archivos = (Array.from(e.target.files || []) as File[]).filter((file) =>
+                                  file.type.startsWith("image/")
+                                );
+                                seleccionarFotosColor(talle, "", archivos);
+                                e.currentTarget.value = "";
+                              }}
+                              style={{
+                                ...inputStyle,
+                                width: "100%",
+                                boxSizing: "border-box",
+                                cursor: "pointer",
+                                background: "#fff",
+                              }}
                             />
+
                             {(fotosPorColor[clavePrecioNuevo(talle, "")] || []).length > 0 && (
-                              <p style={{ fontSize: "12px", color: COLOR_TEXTO_CLARO, margin: "5px 0 0" }}>
-                                {(fotosPorColor[clavePrecioNuevo(talle, "")] || []).length} foto(s) seleccionada(s).
-                              </p>
+                              <div style={{ marginTop: "10px" }}>
+                                <p
+                                  style={{
+                                    fontSize: "12px",
+                                    color: "#666",
+                                    margin: "0 0 8px",
+                                  }}
+                                >
+                                  {(fotosPorColor[clavePrecioNuevo(talle, "")] || []).length} foto(s) seleccionada(s) para <strong>{talle}</strong>.
+                                </p>
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    gap: "8px",
+                                    flexWrap: "wrap",
+                                  }}
+                                >
+                                  {(fotosPorColor[clavePrecioNuevo(talle, "")] || []).map((foto, indice) => (
+                                    <div
+                                      key={`${foto.name}-${indice}`}
+                                      style={{
+                                        width: "75px",
+                                        height: "75px",
+                                        borderRadius: "8px",
+                                        overflow: "hidden",
+                                        border: "1px solid #ddd",
+                                        background: "#fff",
+                                      }}
+                                    >
+                                      <img
+                                        src={URL.createObjectURL(foto)}
+                                        alt={`Foto ${talle} ${indice + 1}`}
+                                        style={{
+                                          width: "100%",
+                                          height: "100%",
+                                          objectFit: "cover",
+                                        }}
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
                             )}
                           </div>
                         )}
