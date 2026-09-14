@@ -4904,6 +4904,33 @@ async function eliminarImagen(imagen: ImagenProducto) {
                           />
                         </div>
 
+                        {/* FOTO DEL TALLE/MODELO CUANDO NO TIENE COLOR */}
+                        {(coloresPorTalle[talle] || []).length === 0 && (
+                          <div style={{ marginBottom: "15px" }}>
+                            <label style={{ ...labelStyle, fontSize: "13px" }}>
+                              Foto de este talle/modelo
+                            </label>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              onChange={(e) =>
+                                seleccionarFotosColor(
+                                  talle,
+                                  "",
+                                  Array.from(e.target.files || [])
+                                )
+                              }
+                              style={inputStyle}
+                            />
+                            {(fotosPorColor[clavePrecioNuevo(talle, "")] || []).length > 0 && (
+                              <p style={{ fontSize: "12px", color: COLOR_TEXTO_CLARO, margin: "5px 0 0" }}>
+                                {(fotosPorColor[clavePrecioNuevo(talle, "")] || []).length} foto(s) seleccionada(s).
+                              </p>
+                            )}
+                          </div>
+                        )}
+
                         <div
                           style={{
                             display:
