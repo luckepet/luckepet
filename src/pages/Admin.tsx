@@ -1111,6 +1111,115 @@ function Admin() {
   }
 
   // =========================
+  // ELIMINAR FOTO DE VARIANTE
+  // =========================
+
+  async function eliminarImagenVariante(
+    foto: ImagenVariante,
+    variante: Variante
+  ) {
+    if (!editando || !foto.id || !variante.id) return;
+
+    if (!window.confirm("¿Querés eliminar esta imagen de este talle/color?")) {
+      return;
+    }
+
+    const extraerRutaStorage = (url: string) => {
+      try {
+        const parsed = new URL(url);
+        const marker = "/storage/v1/object/public/PRODUCTOS/";
+        const index = parsed.pathname.indexOf(marker);
+        return index >= 0
+          ? decodeURIComponent(
+              parsed.pathname.slice(index + marker.length)
+            )
+          : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const { data: existente, error: errorConsulta } = await supabase
+      .from("ProductoVarianteImagenes")
+      .select("id, variante_id, image_url")
+      .eq("id", foto.id)
+      .maybeSingle();
+
+    if (errorConsulta) {
+      console.error(
+        "ERROR CONSULTANDO FOTO DE VARIANTE:",
+        errorConsulta
+      );
+      alert(
+        `No se pudo comprobar la imagen:\n\n${errorConsulta.message}`
+      );
+      return;
+    }
+
+    if (!existente) {
+      setImagenesVariantes((actuales) => ({
+        ...actuales,
+        [variante.id!]: (
+          actuales[variante.id!] || []
+        ).filter((item) => item.id !== foto.id),
+      }));
+      return;
+    }
+
+    const { data: eliminadas, error: errorEliminar } = await supabase
+      .from("ProductoVarianteImagenes")
+      .delete()
+      .eq("id", foto.id)
+      .select("id, image_url");
+
+    if (errorEliminar) {
+      console.error(
+        "ERROR AL ELIMINAR FOTO DE VARIANTE:",
+        errorEliminar
+      );
+      alert(
+        `No se pudo eliminar la imagen:\n\n${errorEliminar.message}`
+      );
+      return;
+    }
+
+    if (!eliminadas || eliminadas.length === 0) {
+      alert(
+        "Supabase no eliminó la imagen. Revisá las políticas RLS de ProductoVarianteImagenes para permitir DELETE al usuario administrador."
+      );
+      return;
+    }
+
+    const urlGuardada =
+      (eliminadas[0] as any).image_url ||
+      existente.image_url ||
+      foto.image_url;
+
+    const rutaStorage = extraerRutaStorage(urlGuardada);
+
+    if (rutaStorage) {
+      const { error: storageError } = await supabase
+        .storage
+        .from("PRODUCTOS")
+        .remove([rutaStorage]);
+
+      if (storageError) {
+        console.warn(
+          "La fila fue eliminada, pero no se pudo borrar el archivo de Storage:",
+          storageError
+        );
+      }
+    }
+
+    setImagenesVariantes((actuales) => ({
+      ...actuales,
+      [variante.id!]: (
+        actuales[variante.id!] || []
+      ).filter((item) => item.id !== foto.id),
+    }));
+  }
+
+  // =========================
   // SUBIR FOTOS DE VARIANTE
   // =========================
 
@@ -6388,10 +6497,82 @@ onDragEnd={() => {
                                     style={inputStyle}
                                   />
                                   {fotosSinColor.length > 0 && (
-                                    <p style={{ fontSize: "12px", color: "#666" }}>
-                                      {fotosSinColor.length} foto(s) guardada(s).
-                                    </p>
+                                    <div
+                                      style={{
+                                        marginTop: "12px",
+                                      }}
+                                    >
+                                      <label
+                                        style={{
+                                          ...labelStyle,
+                                          fontSize: "13px",
+                                        }}
+                                      >
+                                        Imágenes actuales de este talle/modelo
+                                      </label>
+
+                                      <div
+                                        style={{
+                                          display: "flex",
+                                          gap: "8px",
+                                          flexWrap: "wrap",
+                                          marginTop: "8px",
+                                        }}
+                                      >
+                                        {fotosSinColor.map((foto) => (
+                                          <div
+                                            key={foto.id}
+                                            style={{
+                                              width: "90px",
+                                              height: "90px",
+                                              position: "relative",
+                                            }}
+                                          >
+                                            <img
+                                              src={foto.image_url}
+                                              alt=""
+                                              style={{
+                                                width: "90px",
+                                                height: "90px",
+                                                objectFit: "cover",
+                                                borderRadius: "8px",
+                                                border: "1px solid #ddd",
+                                              }}
+                                            />
+
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                eliminarImagenVariante(
+                                                  foto,
+                                                  varianteSinColor
+                                                )
+                                              }
+                                              style={{
+                                                position: "absolute",
+                                                top: "4px",
+                                                right: "4px",
+                                                width: "24px",
+                                                height: "24px",
+                                                border: "none",
+                                                borderRadius: "50%",
+                                                background: "#fff",
+                                                color: "#a00",
+                                                cursor: "pointer",
+                                                fontWeight: 700,
+                                                boxShadow:
+                                                  "0 1px 4px rgba(0,0,0,0.2)",
+                                              }}
+                                              title="Eliminar imagen"
+                                            >
+                                              ×
+                                            </button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
                                   )}
+
                                   {fotosNuevasSinColor.length > 0 && (
                                     <p style={{ fontSize: "12px", color: "#666" }}>
                                       {fotosNuevasSinColor.length} foto(s) nueva(s) seleccionada(s).
@@ -6585,28 +6766,55 @@ onDragEnd={() => {
                                         }}
                                       >
                                         {fotos.map(
-                                          (
-                                            foto
-                                          ) => (
-                                            <img
-                                              key={
-                                                foto.id
-                                              }
-                                              src={
-                                                foto.image_url
-                                              }
-                                              alt=""
+                                          (foto) => (
+                                            <div
+                                              key={foto.id}
                                               style={{
-                                                width:
-                                                  "75px",
-                                                height:
-                                                  "75px",
-                                                objectFit:
-                                                  "cover",
-                                                borderRadius:
-                                                  "7px",
+                                                width: "90px",
+                                                height: "90px",
+                                                position: "relative",
                                               }}
-                                            />
+                                            >
+                                              <img
+                                                src={foto.image_url}
+                                                alt=""
+                                                style={{
+                                                  width: "90px",
+                                                  height: "90px",
+                                                  objectFit: "cover",
+                                                  borderRadius: "7px",
+                                                  border: "1px solid #ddd",
+                                                }}
+                                              />
+
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  eliminarImagenVariante(
+                                                    foto,
+                                                    variante
+                                                  )
+                                                }
+                                                style={{
+                                                  position: "absolute",
+                                                  top: "4px",
+                                                  right: "4px",
+                                                  width: "24px",
+                                                  height: "24px",
+                                                  border: "none",
+                                                  borderRadius: "50%",
+                                                  background: "#fff",
+                                                  color: "#a00",
+                                                  cursor: "pointer",
+                                                  fontWeight: 700,
+                                                  boxShadow:
+                                                    "0 1px 4px rgba(0,0,0,0.2)",
+                                                }}
+                                                title="Eliminar imagen"
+                                              >
+                                                ×
+                                              </button>
+                                            </div>
                                           )
                                         )}
                                       </div>
