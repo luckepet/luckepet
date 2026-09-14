@@ -165,6 +165,11 @@ function Admin() {
     Record<string, number>
   >({});
 
+  // Precio independiente cuando el talle/modelo no tiene color
+  const [preciosPorTalle, setPreciosPorTalle] = useState<
+    Record<string, number>
+  >({});
+
   const [nuevoTalle, setNuevoTalle] = useState("");
   const [nuevoTalleEditando, setNuevoTalleEditando] = useState("");
 
@@ -906,6 +911,11 @@ function Admin() {
       ],
     });
 
+    setPreciosPorTalle((actuales) => ({
+      ...actuales,
+      [talle]: Number(nuevoProducto.price || 0),
+    }));
+
     setNuevoTalle("");
   }
 
@@ -990,6 +1000,12 @@ function Admin() {
       return copia;
     });
 
+    setPreciosPorTalle((actuales) => {
+      const copia = { ...actuales };
+      delete copia[talle];
+      return copia;
+    });
+
     setFotosPorColor((actuales) => {
       const copia = { ...actuales };
 
@@ -1031,6 +1047,16 @@ function Admin() {
         talle,
       ],
     });
+
+    setVariantes((actuales) => [
+      ...actuales,
+      {
+        producto_id: editando.id,
+        talle,
+        color: "",
+        precio: Number(editando.price || 0),
+      },
+    ]);
 
     setNuevoTalleEditando("");
   }
@@ -1255,27 +1281,21 @@ function Admin() {
           const talle of nuevoProducto.talles
         ) {
           const colores =
-            coloresPorTalle[
-              talle
-            ] || [];
+            coloresPorTalle[talle] || [];
 
-          for (
-            const color of colores
-          ) {
-            const clave =
-              clavePrecioNuevo(
-                talle,
-                color
-              );
+          // Si no hay colores, se crea una variante "sin color"
+          // para que el precio pueda ser independiente por talle/modelo.
+          const coloresACrear =
+            colores.length > 0 ? colores : [""];
 
-            const precioGuardado =
-              Number(
-                preciosPorColor[
-                  clave
-                ] ??
-                  nuevoProducto.price ??
-                  0
-              );
+          for (const color of coloresACrear) {
+            const clave = clavePrecioNuevo(talle, color);
+
+            const precioGuardado = Number(
+              color
+                ? (preciosPorColor[clave] ?? preciosPorTalle[talle] ?? nuevoProducto.price ?? 0)
+                : (preciosPorTalle[talle] ?? nuevoProducto.price ?? 0)
+            );
 
             const {
               data:
@@ -1344,6 +1364,7 @@ function Admin() {
       setColoresPorTalle({});
       setFotosPorColor({});
       setPreciosPorColor({});
+      setPreciosPorTalle({});
       setFotosNuevasVariantes({});
       setMostrarNuevo(false);
     } finally {
@@ -1917,12 +1938,32 @@ async function eliminarImagen(imagen: ImagenProducto) {
   function abrirEdicion(
     producto: Producto
   ) {
+    const tallesProducto = producto.talles || [];
+    const variantesProducto = variantes.filter(
+      (v) => v.producto_id === producto.id
+    );
+
+    // Productos antiguos pueden tener talles guardados sin una variante.
+    // Creamos una variante sin color en memoria para poder guardar su precio.
+    const variantesSinColorNuevas: Variante[] = tallesProducto
+      .filter((talle) => !variantesProducto.some((v) => v.talle === talle))
+      .map((talle) => ({
+        producto_id: producto.id,
+        talle,
+        color: "",
+        precio: Number(producto.price || 0),
+      }));
+
+    if (variantesSinColorNuevas.length > 0) {
+      setVariantes((actuales) => [...actuales, ...variantesSinColorNuevas]);
+    }
+
     setEditando({
       ...producto,
       category:
         producto.category || [],
       talles:
-        producto.talles || [],
+        tallesProducto,
     });
 
     setMostrarNuevo(false);
@@ -1981,22 +2022,32 @@ async function eliminarImagen(imagen: ImagenProducto) {
     }
 
     const nuevaVariante: Variante = {
-      producto_id:
-        editando.id,
+      producto_id: editando.id,
       talle,
       color,
-      precio:
-        Number(
-          editando.price || 0
-        ),
+      precio: Number(editando.price || 0),
     };
 
-    setVariantes(
-      (actuales) => [
-        ...actuales,
-        nuevaVariante,
-      ]
+    // Si el talle tenía una variante sin color, al agregar el primer color
+    // la reemplazamos por la variante con color.
+    setVariantes((actuales) =>
+      actuales
+        .filter(
+          (v) =>
+            !(
+              v.producto_id === editando.id &&
+              v.talle === talle &&
+              !v.color?.trim()
+            )
+        )
+        .concat(nuevaVariante)
     );
+
+    setFotosNuevasVariantes((actuales) => {
+      const copia = { ...actuales };
+      delete copia[`${talle}__`];
+      return copia;
+    });
 
     setNuevoColor("");
     setTalleParaColor("");
@@ -2744,6 +2795,9 @@ async function eliminarImagen(imagen: ImagenProducto) {
                   {}
                 );
                 setPreciosPorColor(
+                  {}
+                );
+                setPreciosPorTalle(
                   {}
                 );
                 setFotosNuevasVariantes(
@@ -4831,6 +4885,25 @@ async function eliminarImagen(imagen: ImagenProducto) {
                           </button>
                         </div>
 
+                        <div style={{ marginBottom: "12px" }}>
+                          <label style={{ ...labelStyle, fontSize: "13px" }}>
+                            Precio de este talle/modelo
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={preciosPorTalle[talle] ?? nuevoProducto.price}
+                            onChange={(e) => {
+                              const precio = Number(e.target.value);
+                              setPreciosPorTalle((actuales) => ({
+                                ...actuales,
+                                [talle]: precio,
+                              }));
+                            }}
+                            style={{ ...inputStyle, maxWidth: "220px" }}
+                          />
+                        </div>
+
                         <div
                           style={{
                             display:
@@ -6131,9 +6204,89 @@ onDragEnd={() => {
                             </button>
                           </div>
 
+                          {/* PRECIO DEL TALLE/MODELO SIN COLOR */}
+
+                          {(() => {
+                            const varianteSinColor = variantesDelTalle.find(
+                              (v) => !v.color?.trim()
+                            );
+
+                            if (!varianteSinColor) return null;
+
+                            const fotosSinColor = varianteSinColor.id
+                              ? imagenesVariantes[varianteSinColor.id] || []
+                              : [];
+                            const claveSinColor = claveVariante(varianteSinColor);
+                            const fotosNuevasSinColor = fotosNuevasVariantes[claveSinColor] || [];
+
+                            return (
+                              <div
+                                style={{
+                                  border: "1px solid #ddd",
+                                  borderRadius: "8px",
+                                  padding: "12px",
+                                  marginTop: "10px",
+                                  background: "#fafafa",
+                                }}
+                              >
+                                <strong style={{ color: "#263d2d" }}>
+                                  Precio de este talle/modelo
+                                </strong>
+
+                                <div style={{ marginTop: "10px" }}>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={varianteSinColor.precio}
+                                    onChange={(e) => {
+                                      const precio = Number(e.target.value);
+                                      setVariantes((actuales) =>
+                                        actuales.map((v) =>
+                                          v === varianteSinColor ||
+                                          (v.id && varianteSinColor.id && v.id === varianteSinColor.id)
+                                            ? { ...v, precio }
+                                            : v
+                                        )
+                                      );
+                                    }}
+                                    style={{ ...inputStyle, maxWidth: "220px" }}
+                                  />
+                                </div>
+
+                                <div style={{ marginTop: "10px" }}>
+                                  <label style={{ ...labelStyle, fontSize: "13px" }}>
+                                    Fotos de este talle/modelo
+                                  </label>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    multiple
+                                    onChange={(e) =>
+                                      seleccionarFotosVariante(
+                                        varianteSinColor,
+                                        Array.from(e.target.files || [])
+                                      )
+                                    }
+                                    style={inputStyle}
+                                  />
+                                  {fotosSinColor.length > 0 && (
+                                    <p style={{ fontSize: "12px", color: "#666" }}>
+                                      {fotosSinColor.length} foto(s) guardada(s).
+                                    </p>
+                                  )}
+                                  {fotosNuevasSinColor.length > 0 && (
+                                    <p style={{ fontSize: "12px", color: "#666" }}>
+                                      {fotosNuevasSinColor.length} foto(s) nueva(s) seleccionada(s).
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
                           {/* COLORES */}
 
-                          {variantesDelTalle.map(
+                          {variantesDelTalle.filter((v) => v.color?.trim()).map(
                             (
                               variante
                             ) => {

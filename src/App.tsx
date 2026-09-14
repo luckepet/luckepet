@@ -462,62 +462,143 @@ async function cargarProductos() {
   // FOTOS DE PORTADA
   // =====================================================
 
-  async function cargarFotosPortada() {
-    const mapa: Record<
-      number,
-      string
-    > = {}
+async function cargarFotosPortada() {
+  const mapa: Record<number, string> = {}
+
+  // =====================================================
+  // 1. FOTOS GENERALES
+  // =====================================================
+
+  const {
+    data: fotosGenerales,
+    error: errorGenerales
+  } = await supabase
+    .from('ProductoImagenes')
+    .select('producto_id, image_url, orden')
+    .order('orden', {
+      ascending: true
+    })
+
+  if (errorGenerales) {
+    console.error(
+      'ERROR FOTOS PORTADA:',
+      errorGenerales
+    )
+  } else {
+    ;(fotosGenerales || []).forEach(
+      (imagen: Imagen) => {
+        if (
+          imagen.producto_id &&
+          imagen.image_url?.trim() &&
+          !mapa[imagen.producto_id]
+        ) {
+          mapa[imagen.producto_id] =
+            imagen.image_url.trim()
+        }
+      }
+    )
+  }
+
+  // =====================================================
+  // 2. IMAGEN PRINCIPAL DEL PRODUCTO
+  // =====================================================
+
+  productos.forEach(producto => {
+    if (
+      !mapa[producto.id] &&
+      producto.image?.trim()
+    ) {
+      mapa[producto.id] =
+        producto.image.trim()
+    }
+  })
+
+  // =====================================================
+  // 3. SI NO HAY FOTO GENERAL,
+  //    BUSCAR FOTO EN LAS VARIANTES
+  // =====================================================
+
+  const {
+    data: variantes,
+    error: errorVariantes
+  } = await supabase
+    .from('ProductoVariantes')
+    .select('id, producto_id')
+    .order('id', {
+      ascending: true
+    })
+
+  if (errorVariantes) {
+    console.error(
+      'ERROR VARIANTES PORTADA:',
+      errorVariantes
+    )
+  } else if (variantes?.length) {
+
+    const idsVariantes =
+      variantes.map(
+        variante => variante.id
+      )
 
     const {
-      data,
-      error
+      data: fotosVariantes,
+      error: errorFotosVariantes
     } = await supabase
-      .from('ProductoImagenes')
+      .from('ProductoVarianteImagenes')
       .select(
-        'producto_id, image_url, orden'
+        'variante_id, image_url, orden'
+      )
+      .in(
+        'variante_id',
+        idsVariantes
       )
       .order('orden', {
         ascending: true
       })
 
-    if (error) {
+    if (errorFotosVariantes) {
       console.error(
-        'ERROR FOTOS PORTADA:',
-        error
+        'ERROR FOTOS DE VARIANTES PARA PORTADA:',
+        errorFotosVariantes
       )
     } else {
-      ;(data || []).forEach(
+
+      ;(fotosVariantes || []).forEach(
         (imagen: Imagen) => {
+
           if (
-            imagen.producto_id &&
-            imagen.image_url?.trim() &&
-            !mapa[
-              imagen.producto_id
-            ]
+            !imagen.variante_id ||
+            !imagen.image_url?.trim()
           ) {
-            mapa[
-              imagen.producto_id
-            ] =
-              imagen.image_url.trim()
+            return
           }
+
+          // Buscamos a qué producto pertenece
+          const variante =
+            variantes.find(
+              item =>
+                item.id ===
+                imagen.variante_id
+            )
+
+          if (
+            !variante ||
+            mapa[variante.producto_id]
+          ) {
+            return
+          }
+
+          // La primera foto de variante
+          // pasa a ser la portada.
+          mapa[variante.producto_id] =
+            imagen.image_url.trim()
         }
       )
     }
-
-    productos.forEach(
-      producto => {
-        if (
-          !mapa[producto.id] &&
-          producto.image?.trim()
-        ) {
-          mapa[producto.id] =
-            producto.image.trim()
-        }
-      }
-    )
-
-    setImagenesPortada(mapa)
   }
+
+  setImagenesPortada(mapa)
+}
 
   // =====================================================
   // CARGAR FOTOS GENERALES
