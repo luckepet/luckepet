@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 type Producto = {
@@ -89,6 +89,8 @@ type Visita = {
 
 type PeriodoEstadisticas = "hoy" | "7dias" | "30dias";
 
+type Seccion = { id: number; nombre: string; orden: number; activa: boolean; };
+
 const productoVacio = {
   name: "",
   description: "",
@@ -100,6 +102,13 @@ const productoVacio = {
   tiene_talle: false,
   talles: [] as string[],
 };
+
+const categoriasBase = [
+  "Perros",
+  "Gatos",
+  "Higiene",
+  "Accesorios",
+];
 
 function alternarCategoria(
   categorias: string[],
@@ -176,10 +185,15 @@ function Admin() {
   const [nuevoTalleEditando, setNuevoTalleEditando] = useState("");
 
   // ============================================================
-  // CATEGORÍAS JERÁRQUICAS
+  // SECCIONES / CATEGORÍAS DINÁMICAS
   // ============================================================
+  const [secciones, setSecciones] = useState<Seccion[]>([]);
+  const [nuevaCategoria, setNuevaCategoria] = useState("");
+  const [mostrarSecciones, setMostrarSecciones] = useState(false);
+  const [seccionEditando, setSeccionEditando] = useState<number | null>(null);
+  const [nombreSeccionEditando, setNombreSeccionEditando] = useState("");
+  const [guardandoSeccion, setGuardandoSeccion] = useState(false);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
-  const [nuevaCategoriaJerarquica, setNuevaCategoriaJerarquica] = useState("");
   const [nuevaSubcategoria, setNuevaSubcategoria] = useState("");
   const [categoriaPadreNueva, setCategoriaPadreNueva] = useState<number | "">("");
   const [guardandoCategoria, setGuardandoCategoria] = useState(false);
@@ -189,10 +203,12 @@ function Admin() {
       Array.isArray(producto.category) ? producto.category : producto.category ? [producto.category] : []
     );
     return Array.from(new Set([
+      ...categoriasBase,
+      ...secciones.map((seccion) => seccion.nombre),
       ...categorias.map((categoria) => categoria.nombre),
       ...categoriasDeProductos,
     ])).filter(Boolean);
-  }, [productos, categorias]);
+  }, [productos, secciones]);
 
   async function cargarCategorias() {
     const { data, error } = await supabase
@@ -211,33 +227,19 @@ function Admin() {
     setCategorias((data || []) as Categoria[]);
   }
 
-  async function agregarCategoriaPrincipal() {
-    const nombre = nuevaCategoriaJerarquica.trim().replace(/\s+/g, " ");
-    if (!nombre) { alert("Escribí un nombre para la categoría."); return; }
-    if (categorias.some(c => c.parent_id === null && c.nombre.toLowerCase() === nombre.toLowerCase())) { alert("Esa categoría principal ya existe."); return; }
-    setGuardandoCategoria(true);
-    try {
-      const siguienteOrden = categorias.filter(c => c.parent_id === null).reduce((m,c) => Math.max(m, Number(c.orden)||0),0)+1;
-      const { error } = await supabase.from("Categorias").insert({ nombre, parent_id: null, orden: siguienteOrden, activa: true });
-      if (error) throw error;
-      setNuevaCategoriaJerarquica("");
-      await cargarCategorias();
-    } catch (error) {
-      console.error("ERROR AGREGANDO CATEGORÍA:", error);
-      alert(`No se pudo agregar la categoría:\n\n${error instanceof Error ? error.message : "Error desconocido"}`);
-    } finally { setGuardandoCategoria(false); }
-  }
-
   async function agregarCategoriaJerarquica() {
     const nombre = nuevaSubcategoria.trim().replace(/\s+/g, " ");
-    if (!nombre) { alert("Escribí un nombre para la subcategoría."); return; }
-    if (!categoriaPadreNueva) { alert("Elegí la categoría padre."); return; }
-    if (categorias.some(c => c.parent_id === Number(categoriaPadreNueva) && c.nombre.toLowerCase() === nombre.toLowerCase())) { alert("Esa subcategoría ya existe dentro de esa categoría."); return; }
+    if (!nombre) { alert("Escribí un nombre para la categoría."); return; }
+    if (!categoriaPadreNueva) { alert("Elegí una categoría principal."); return; }
+    if (categorias.some(c => c.parent_id === Number(categoriaPadreNueva) && c.nombre.toLowerCase() === nombre.toLowerCase())) {
+      alert("Esa subcategoría ya existe dentro de esa categoría."); return;
+    }
     setGuardandoCategoria(true);
     try {
-      const hermanos = categorias.filter(c => c.parent_id === Number(categoriaPadreNueva));
-      const siguienteOrden = hermanos.reduce((m,c) => Math.max(m, Number(c.orden)||0),0)+1;
-      const { error } = await supabase.from("Categorias").insert({ nombre, parent_id: Number(categoriaPadreNueva), orden: siguienteOrden, activa: true });
+      const siguienteOrden = categorias.reduce((m, c) => Math.max(m, Number(c.orden) || 0), 0) + 1;
+      const { error } = await supabase.from("Categorias").insert({
+        nombre, parent_id: Number(categoriaPadreNueva), orden: siguienteOrden, activa: true
+      });
       if (error) throw error;
       setNuevaSubcategoria("");
       await cargarCategorias();
@@ -248,8 +250,7 @@ function Admin() {
   }
 
   async function eliminarCategoriaJerarquica(categoria: Categoria) {
-    const hijos = categorias.filter(c => c.parent_id === categoria.id);
-    if (!window.confirm(hijos.length ? `"${categoria.nombre}" tiene ${hijos.length} subcategoría(s). También se eliminarán. ¿Continuar?` : `¿Eliminar "${categoria.nombre}"?`)) return;
+    if (!window.confirm(`¿Eliminar "${categoria.nombre}"?`)) return;
     setGuardandoCategoria(true);
     try {
       const { error } = await supabase.from("Categorias").delete().eq("id", categoria.id);
@@ -261,9 +262,92 @@ function Admin() {
     } finally { setGuardandoCategoria(false); }
   }
 
-  useEffect(() => {
-    cargarCategorias();
-  }, []);
+  async function cargarSecciones() {
+    const { data, error } = await supabase.from("Secciones").select("id, nombre, orden, activa").order("orden", { ascending: true }).order("id", { ascending: true });
+    if (error) { console.error("ERROR CARGANDO SECCIONES:", error); return; }
+    const existentes = (data || []) as Seccion[];
+    const nombres = new Set(existentes.map((s) => s.nombre.toLowerCase()));
+    let siguienteOrden = existentes.reduce((m, s) => Math.max(m, Number(s.orden) || 0), 0) + 1;
+    for (const nombre of categoriasBase) {
+      if (nombres.has(nombre.toLowerCase())) continue;
+      const { data: creada, error: errorCreando } = await supabase.from("Secciones").insert({ nombre, orden: siguienteOrden, activa: true }).select("id, nombre, orden, activa").single();
+      if (errorCreando) { console.error(`ERROR CREANDO SECCIÓN ${nombre}:`, errorCreando); continue; }
+      if (creada) { existentes.push(creada as Seccion); nombres.add(nombre.toLowerCase()); siguienteOrden++; }
+    }
+    existentes.sort((a,b) => Number(a.orden)-Number(b.orden) || Number(a.id)-Number(b.id));
+    setSecciones(existentes);
+  }
+
+  async function agregarCategoria() {
+    const nombre = nuevaCategoria.trim().replace(/\s+/g, " ");
+    if (!nombre) { alert("Escribí un nombre para la sección."); return; }
+    if (secciones.some((s) => s.nombre.toLowerCase() === nombre.toLowerCase())) { alert("Esa sección ya existe."); return; }
+    setGuardandoSeccion(true);
+    try {
+      const siguienteOrden = secciones.reduce((m,s) => Math.max(m, Number(s.orden)||0), 0) + 1;
+      const { error } = await supabase.from("Secciones").insert({ nombre, orden: siguienteOrden, activa: true });
+      if (error) { console.error("ERROR AGREGANDO SECCIÓN:", error); alert(`No se pudo agregar la sección:\n\n${error.message}`); return; }
+      setNuevaCategoria(""); await cargarSecciones();
+    } finally { setGuardandoSeccion(false); }
+  }
+
+  function iniciarEdicionSeccion(seccion: Seccion) { setSeccionEditando(seccion.id); setNombreSeccionEditando(seccion.nombre); }
+  function cancelarEdicionSeccion() { setSeccionEditando(null); setNombreSeccionEditando(""); }
+
+  async function guardarEdicionSeccion(seccion: Seccion) {
+    const nuevoNombre = nombreSeccionEditando.trim().replace(/\s+/g, " ");
+    if (!nuevoNombre) { alert("El nombre de la sección no puede estar vacío."); return; }
+    if (secciones.some((s) => s.id !== seccion.id && s.nombre.toLowerCase() === nuevoNombre.toLowerCase())) { alert("Ya existe otra sección con ese nombre."); return; }
+    setGuardandoSeccion(true);
+    try {
+      const nombreAnterior = seccion.nombre;
+      const { error } = await supabase.from("Secciones").update({ nombre: nuevoNombre }).eq("id", seccion.id);
+      if (error) { console.error("ERROR EDITANDO SECCIÓN:", error); alert(`No se pudo editar la sección:\n\n${error.message}`); return; }
+      const afectados = productos.filter((p) => (Array.isArray(p.category) ? p.category : p.category ? [p.category] : []).includes(nombreAnterior));
+      for (const producto of afectados) {
+        const categorias = (Array.isArray(producto.category) ? producto.category : producto.category ? [producto.category] : []).map((c) => c === nombreAnterior ? nuevoNombre : c);
+        const { error: errorProducto } = await supabase.from("Productos").update({ category: categorias }).eq("id", producto.id);
+        if (errorProducto) console.error(`ERROR ACTUALIZANDO CATEGORÍA DEL PRODUCTO ${producto.id}:`, errorProducto);
+      }
+      cancelarEdicionSeccion(); await cargarSecciones(); await cargarProductos();
+    } finally { setGuardandoSeccion(false); }
+  }
+
+  async function alternarActivaSeccion(seccion: Seccion) {
+    setGuardandoSeccion(true);
+    try {
+      const { error } = await supabase.from("Secciones").update({ activa: !seccion.activa }).eq("id", seccion.id);
+      if (error) { console.error("ERROR CAMBIANDO ESTADO DE SECCIÓN:", error); alert(`No se pudo cambiar el estado:\n\n${error.message}`); return; }
+      await cargarSecciones();
+    } finally { setGuardandoSeccion(false); }
+  }
+
+  async function eliminarCategoria(seccion: Seccion) {
+    const usados = productos.filter((p) => (Array.isArray(p.category) ? p.category : p.category ? [p.category] : []).includes(seccion.nombre));
+    if (usados.length > 0) { alert(`No se puede eliminar "${seccion.nombre}" porque hay ${usados.length} producto(s) asignado(s). Primero quitá esa sección de esos productos.`); return; }
+    if (!window.confirm(`¿Eliminar la sección "${seccion.nombre}"?`)) return;
+    setGuardandoSeccion(true);
+    try {
+      const { error } = await supabase.from("Secciones").delete().eq("id", seccion.id);
+      if (error) { console.error("ERROR ELIMINANDO SECCIÓN:", error); alert(`No se pudo eliminar la sección:\n\n${error.message}`); return; }
+      await cargarSecciones();
+    } finally { setGuardandoSeccion(false); }
+  }
+
+  async function moverSeccion(seccion: Seccion, direccion: -1 | 1) {
+    const ordenadas = [...secciones].sort((a,b) => Number(a.orden)-Number(b.orden) || Number(a.id)-Number(b.id));
+    const indice = ordenadas.findIndex((s) => s.id === seccion.id); const nuevoIndice = indice + direccion;
+    if (indice < 0 || nuevoIndice < 0 || nuevoIndice >= ordenadas.length) return;
+    const otra = ordenadas[nuevoIndice]; setGuardandoSeccion(true);
+    try {
+      const { error: e1 } = await supabase.from("Secciones").update({ orden: otra.orden }).eq("id", seccion.id); if (e1) throw e1;
+      const { error: e2 } = await supabase.from("Secciones").update({ orden: seccion.orden }).eq("id", otra.id); if (e2) throw e2;
+      await cargarSecciones();
+    } catch (error) { console.error("ERROR CAMBIANDO ORDEN DE SECCIÓN:", error); alert(`No se pudo cambiar el orden:\n\n${error instanceof Error ? error.message : "Error desconocido"}`); }
+    finally { setGuardandoSeccion(false); }
+  }
+
+  useEffect(() => { cargarSecciones(); }, []);
 
   // ============================================================
   // ESTADÍSTICAS
@@ -275,6 +359,17 @@ function Admin() {
 
   const [periodoEstadisticas, setPeriodoEstadisticas] =
     useState<PeriodoEstadisticas>("7dias");
+
+  const [excluirEsteDispositivo, setExcluirEsteDispositivo] =
+    useState(() => localStorage.getItem("luckepet_excluir_estadisticas") === "true");
+
+  function cambiarExclusionEstadisticas() {
+    setExcluirEsteDispositivo((actual) => {
+      const nuevoValor = !actual;
+      localStorage.setItem("luckepet_excluir_estadisticas", String(nuevoValor));
+      return nuevoValor;
+    });
+  }
 
   // ============================================================
   // PEDIDOS
@@ -290,30 +385,19 @@ function Admin() {
     null
   );
   const [seccionAbierta, setSeccionAbierta] =
-    useState<"productos" | "categorias" | "estadisticas" | "pedidos" | null>(
-      "productos"
-    );
+  useState<"productos" | "estadisticas" | "pedidos" | null>(
+    "productos"
+  );
   const [menuAbierto, setMenuAbierto] = useState(false);
-  const productosRef = useRef<HTMLDivElement | null>(null);
-  const categoriasRef = useRef<HTMLDivElement | null>(null);
-  const pedidosRef = useRef<HTMLDivElement | null>(null);
-  const estadisticasRef = useRef<HTMLDivElement | null>(null);
 
-  function alternarSeccion(
-    seccion: "productos" | "categorias" | "estadisticas" | "pedidos"
-  ) {
-    setSeccionAbierta(seccion);
-    setMenuAbierto(false);
-    window.setTimeout(() => {
-      const refs: Record<string, { current: HTMLDivElement | null }> = {
-        productos: productosRef,
-        categorias: categoriasRef,
-        pedidos: pedidosRef,
-        estadisticas: estadisticasRef,
-      };
-      refs[seccion]?.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 80);
-  }
+function alternarSeccion(
+  seccion: "productos" | "estadisticas" | "pedidos"
+) {
+  setSeccionAbierta((actual) =>
+    actual === seccion ? null : seccion
+  );
+  setMenuAbierto(false);
+}
 
   function claveVariante(variante: Variante) {
     return `${variante.producto_id}__${variante.talle}__${variante.color}`;
@@ -1356,10 +1440,6 @@ function Admin() {
         }
       }
 
-      alert(
-        "Producto creado correctamente."
-      );
-
       setNuevoProducto({
         ...productoVacio,
         talles: [],
@@ -1386,11 +1466,19 @@ function Admin() {
   // =========================
   // ELIMINAR IMAGEN
   // =========================
-async function eliminarImagen(imagen: ImagenProducto) {
+async function eliminarImagen(
+  imagen: ImagenProducto
+) {
   if (!editando) return;
-  if (!window.confirm("¿Querés eliminar esta imagen definitivamente?")) return;
+
+  const confirmar = window.confirm(
+    "¿Querés eliminar esta imagen?"
+  );
+
+  if (!confirmar) return;
 
   const productoId = editando.id;
+
   const extraerRutaStorage = (url: string) => {
     try {
       const parsed = new URL(url);
@@ -1400,81 +1488,89 @@ async function eliminarImagen(imagen: ImagenProducto) {
     } catch { return null; }
   };
 
-  // Primero verificamos que la fila exista y obtenemos la URL real guardada.
-  const { data: existente, error: errorConsulta } = await supabase
-    .from("ProductoImagenes")
-    .select("id, producto_id, image_url")
-    .eq("id", imagen.id)
-    .maybeSingle();
-
-  if (errorConsulta) {
-    console.error("ERROR CONSULTANDO IMAGEN:", errorConsulta);
-    alert(`No se pudo comprobar la imagen:\n\n${errorConsulta.message}`);
-    return;
-  }
-
-  if (!existente) {
-    // La fila ya no existe: sincronizamos la UI para que no vuelva a mostrarse.
-    setImagenesProducto(prev => ({ ...prev, [productoId]: (prev[productoId] || []).filter(i => i.id !== imagen.id) }));
-    alert("La imagen ya no estaba guardada en la base de datos.");
-    return;
-  }
-
-  const { data: eliminadas, error: errorEliminar } = await supabase
-    .from("ProductoImagenes")
-    .delete()
-    .eq("id", imagen.id)
-    .select("id, image_url");
+  const { error: errorEliminar } =
+    await supabase
+      .from("ProductoImagenes")
+      .delete()
+      .eq("id", imagen.id);
 
   if (errorEliminar) {
-    console.error("ERROR AL ELIMINAR IMAGEN:", errorEliminar);
-    alert(`No se pudo eliminar la imagen:\n\n${errorEliminar.message}`);
+    console.error(
+      "ERROR AL ELIMINAR IMAGEN:",
+      errorEliminar
+    );
+
+    alert(
+      "No se pudo eliminar la imagen:\n\n" +
+      errorEliminar.message
+    );
+
     return;
   }
 
-  // Si Supabase devolvió cero filas, normalmente es una política RLS que impide borrar.
-  if (!eliminadas || eliminadas.length === 0) {
-    alert("Supabase no eliminó la imagen. Revisá las políticas RLS de ProductoImagenes para permitir DELETE al usuario administrador.");
-    return;
-  }
-
-  const urlGuardada = (eliminadas[0] as any).image_url || existente.image_url || imagen.image_url;
-  const rutaStorage = extraerRutaStorage(urlGuardada);
+  const rutaStorage = extraerRutaStorage(imagen.image_url);
   if (rutaStorage) {
     const { error: storageError } = await supabase.storage.from("PRODUCTOS").remove([rutaStorage]);
-    if (storageError) {
-      console.warn("La fila fue eliminada, pero no se pudo borrar el archivo de Storage:", storageError);
-    }
+    if (storageError) console.warn("No se pudo eliminar el archivo de Storage:", storageError);
   }
 
-  const imagenesRestantes = (imagenesProducto[productoId] || []).filter(i => i.id !== imagen.id);
-  setImagenesProducto(prev => ({ ...prev, [productoId]: imagenesRestantes }));
+  // QUITARLA INMEDIATAMENTE DE LA PANTALLA
+  const imagenesRestantes =
+    (imagenesProducto[productoId] || []).filter(
+      (i) => i.id !== imagen.id
+    );
 
-  // Si era la imagen principal, actualizar Productos para que tampoco reaparezca al recargar.
-  if (editando.image === urlGuardada || editando.image === imagen.image_url) {
-    const nuevaPrincipal = imagenesRestantes[0]?.image_url || "";
-    const { error: errorPrincipal } = await supabase
-      .from("Productos")
-      .update({ image: nuevaPrincipal })
-      .eq("id", productoId);
+  setImagenesProducto((prev) => ({
+    ...prev,
+    [productoId]: imagenesRestantes,
+  }));
+
+  // SI ERA LA PRINCIPAL, PONER OTRA
+  if (
+    editando.image === imagen.image_url
+  ) {
+    const nuevaPrincipal =
+      imagenesRestantes[0]?.image_url || "";
+
+    const { error: errorPrincipal } =
+      await supabase
+        .from("Productos")
+        .update({
+          image: nuevaPrincipal,
+        })
+        .eq("id", productoId);
 
     if (errorPrincipal) {
-      console.error("ERROR AL CAMBIAR IMAGEN PRINCIPAL:", errorPrincipal);
-      alert(`La imagen se eliminó, pero no se pudo actualizar la principal:\n\n${errorPrincipal.message}`);
+      console.error(
+        "ERROR AL CAMBIAR IMAGEN PRINCIPAL:",
+        errorPrincipal
+      );
     }
 
-    setEditando(actual => actual ? { ...actual, image: nuevaPrincipal } : actual);
-    setProductos(prev => prev.map(producto => producto.id === productoId ? { ...producto, image: nuevaPrincipal } : producto));
+    setEditando((actual) =>
+      actual
+        ? {
+            ...actual,
+            image: nuevaPrincipal,
+          }
+        : actual
+    );
+
+    setProductos((prev) =>
+      prev.map((producto) =>
+        producto.id === productoId
+          ? {
+              ...producto,
+              image: nuevaPrincipal,
+            }
+          : producto
+      )
+    );
   }
 
-  // Confirmación real: volvemos a consultar esa fila; si no existe, no puede reaparecer desde DB.
-  const { data: comprobacion } = await supabase.from("ProductoImagenes").select("id").eq("id", imagen.id).maybeSingle();
-  if (comprobacion) {
-    alert("La imagen no quedó eliminada de Supabase. Revisá las políticas RLS de DELETE.");
-    return;
-  }
-
-  alert("Imagen eliminada definitivamente.");
+  alert(
+    "Imagen eliminada correctamente."
+  );
 }
 
   // =========================
@@ -1967,10 +2063,6 @@ async function eliminarImagen(imagen: ImagenProducto) {
         );
       }
 
-      alert(
-        "Cambios guardados correctamente."
-      );
-
       setImagenesSeleccionadas(
         []
       );
@@ -2253,7 +2345,7 @@ async function eliminarImagen(imagen: ImagenProducto) {
               .toLowerCase() ||
               "";
 
-  return (
+          return (
             nombre.includes(
               texto
             ) ||
@@ -2300,37 +2392,47 @@ async function eliminarImagen(imagen: ImagenProducto) {
     });
   }, [visitas, periodoEstadisticas]);
 
-  const totalVisitas = visitasPeriodo.filter(
-    (v) => v.evento === "visita"
-  ).length;
+  const visitasUnicasPeriodo = useMemo(() => {
+    const vistas = visitasPeriodo.filter((v) => v.evento === "visita");
+    const vistasPorSesionYDia = new Map<string, Visita>();
+
+    vistas.forEach((v) => {
+      const fecha = new Date(v.fecha);
+      const dia = `${fecha.getFullYear()}-${fecha.getMonth()}-${fecha.getDate()}`;
+      const clave = `${v.session_id}__${dia}`;
+      if (!vistasPorSesionYDia.has(clave)) vistasPorSesionYDia.set(clave, v);
+    });
+
+    return Array.from(vistasPorSesionYDia.values());
+  }, [visitasPeriodo]);
+
+  const totalVisitas = visitasUnicasPeriodo.length;
 
   const visitantesUnicos = new Set(
-    visitasPeriodo
-      .filter(
-        (v) => v.evento === "visita"
-      )
-      .map((v) => v.session_id)
+    visitasUnicasPeriodo.map((v) => v.session_id)
   ).size;
 
-  const visitasCelular = visitasPeriodo.filter(
-    (v) =>
-      v.evento === "visita" &&
-      v.dispositivo === "Celular"
+  const visitasCelular = visitasUnicasPeriodo.filter(
+    (v) => v.dispositivo === "Celular"
   ).length;
 
-  const visitasPC = visitasPeriodo.filter(
-    (v) =>
-      v.evento === "visita" &&
-      v.dispositivo === "PC"
+  const visitasPC = visitasUnicasPeriodo.filter(
+    (v) => v.dispositivo === "PC"
   ).length;
 
-  const vistasProductoPeriodo =
-    visitasPeriodo.filter(
-      (v) => v.evento === "producto_visto"
-    );
+  const vistasProductoPeriodo = useMemo(() => {
+    const vistas = visitasPeriodo.filter((v) => v.evento === "producto_visto");
+    const unicas = new Map<string, Visita>();
 
-  const productosVistos =
-    vistasProductoPeriodo.length;
+    vistas.forEach((v) => {
+      const clave = `${v.session_id}__${v.producto_id ?? v.producto_nombre ?? "sin-producto"}`;
+      if (!unicas.has(clave)) unicas.set(clave, v);
+    });
+
+    return Array.from(unicas.values());
+  }, [visitasPeriodo]);
+
+  const productosVistos = vistasProductoPeriodo.length;
 
   const personasQueVieronProductos =
     new Set(
@@ -2511,24 +2613,13 @@ async function eliminarImagen(imagen: ImagenProducto) {
         `${anio}-${mes}-${dia}`;
 
       const cantidad =
-        visitasPeriodo.filter(
+        visitasUnicasPeriodo.filter(
           (v) => {
-            if (
-              v.evento !== "visita"
-            ) {
-              return false;
-            }
-
-            const fecha =
-              new Date(v.fecha);
-
+            const fecha = new Date(v.fecha);
             return (
-              fecha.getFullYear() ===
-                anio &&
-              fecha.getMonth() ===
-                cursor.getMonth() &&
-              fecha.getDate() ===
-                cursor.getDate()
+              fecha.getFullYear() === anio &&
+              fecha.getMonth() === cursor.getMonth() &&
+              fecha.getDate() === cursor.getDate()
             );
           }
         ).length;
@@ -2546,7 +2637,7 @@ async function eliminarImagen(imagen: ImagenProducto) {
     }
 
     return resultado;
-  }, [visitasPeriodo, periodoEstadisticas]);
+  }, [visitasUnicasPeriodo, periodoEstadisticas]);
 
   const maxVisitasGrafico =
     Math.max(
@@ -2746,18 +2837,6 @@ async function eliminarImagen(imagen: ImagenProducto) {
   // ADMIN
   // =========================
 
-  function renderArbolCategorias(padreId: number, nivel = 1): any {
-    return categorias.filter(c => c.parent_id === padreId).map(categoria => (
-      <div key={categoria.id} style={{ marginLeft: `${nivel * 18}px`, marginTop: "6px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px", background: nivel % 2 ? "#f5f7f2" : "#fafbf8", border: "1px solid #e5e8e1", borderRadius: "8px" }}>
-          <span style={{ flex: 1, color: "#444" }}>{"↳ ".repeat(Math.min(nivel, 3))}{categoria.nombre}</span>
-          <button type="button" onClick={() => eliminarCategoriaJerarquica(categoria)} disabled={guardandoCategoria} style={{ border: "none", background: "#f1dede", color: "#9b3333", borderRadius: "6px", cursor: "pointer", padding: "5px 8px", fontWeight: 700 }}>Eliminar</button>
-        </div>
-        {renderArbolCategorias(categoria.id, nivel + 1)}
-      </div>
-    ));
-  }
-
   const pedidosPendientes =
     pedidos.filter(
       (pedido) =>
@@ -2910,8 +2989,8 @@ async function eliminarImagen(imagen: ImagenProducto) {
             style={{
               width: "100%", display: "flex", alignItems: "center",
               justifyContent: "space-between", gap: "12px", padding: "14px 16px",
-              borderRadius: "12px", border: "1px solid #d9dfd3", background: "#263d2d",
-              color: "#fff", cursor: "pointer", fontSize: "16px", fontWeight: 700,
+              borderRadius: "12px", border: "1px solid #d9dfd3", background: "#fff",
+              color: "#263d2d", cursor: "pointer", fontSize: "16px", fontWeight: 700,
               boxShadow: "0 4px 15px rgba(0,0,0,0.05)",
             }}
           >
@@ -2930,7 +3009,6 @@ async function eliminarImagen(imagen: ImagenProducto) {
             }}>
               {[
                 { id: "productos" as const, icono: "📦", texto: "Productos" },
-                { id: "categorias" as const, icono: "☰", texto: "Categorías y subcategorías" },
                 { id: "pedidos" as const, icono: "🛒", texto: "Pedidos", contador: pedidosPendientes },
                 { id: "estadisticas" as const, icono: "📊", texto: "Estadísticas" },
               ].map((opcion) => (
@@ -2973,44 +3051,69 @@ async function eliminarImagen(imagen: ImagenProducto) {
         </div>
 
         {/* =========================
+            SECCIONES / CATEGORÍAS
+        ========================= */}
+        <div style={{ background: "#fff", borderRadius: "14px", padding: "20px", marginBottom: "25px", boxShadow: "0 4px 20px rgba(0,0,0,0.06)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+            <div>
+              <h2 style={{ margin: 0, color: "#263d2d" }}>Secciones de la tienda</h2>
+              <p style={{ margin: "5px 0 0", color: "#666", fontSize: "14px" }}>Creá, editá, activá, desactivá y ordená las secciones de tu tienda.</p>
+            </div>
+            <button type="button" onClick={() => setMostrarSecciones((v) => !v)} style={{ ...buttonStyle, background: "#e5eadf", color: "#263d2d" }}>{mostrarSecciones ? "Ocultar" : "Administrar secciones"}</button>
+          </div>
+          {mostrarSecciones && <div style={{ marginTop: "18px" }}>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "16px" }}>
+              <input value={nuevaCategoria} onChange={(e) => setNuevaCategoria(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") agregarCategoria(); }} placeholder="Ej: Ofertas, Novedades, Camitas..." style={{ ...inputStyle, flex: 1, minWidth: "240px" }} disabled={guardandoSeccion} />
+              <button type="button" onClick={agregarCategoria} disabled={guardandoSeccion} style={{ ...buttonStyle, background: "#263d2d", color: "#fff" }}>+ Agregar sección</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {secciones.map((seccion, indice) => <div key={seccion.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px", background: seccion.activa ? "#f5f7f2" : "#f1f1f1", border: "1px solid #dfe5db", borderRadius: "9px", flexWrap: "wrap" }}>
+                {seccionEditando === seccion.id ? <>
+                  <input value={nombreSeccionEditando} onChange={(e) => setNombreSeccionEditando(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") guardarEdicionSeccion(seccion); if (e.key === "Escape") cancelarEdicionSeccion(); }} autoFocus style={{ ...inputStyle, flex: 1, minWidth: "220px" }} />
+                  <button type="button" onClick={() => guardarEdicionSeccion(seccion)} disabled={guardandoSeccion} style={{ ...buttonStyle, background: "#263d2d", color: "#fff" }}>Guardar</button>
+                  <button type="button" onClick={cancelarEdicionSeccion} disabled={guardandoSeccion} style={{ ...buttonStyle, background: "#eee", color: "#333" }}>Cancelar</button>
+                </> : <>
+                  <span style={{ minWidth: "24px", color: "#777", fontSize: "13px" }}>{indice + 1}.</span>
+                  <span style={{ fontWeight: 600, color: "#263d2d", flex: 1, minWidth: "150px" }}>{seccion.nombre}</span>
+                  <span style={{ fontSize: "12px", padding: "4px 8px", borderRadius: "20px", background: seccion.activa ? "#dce9d8" : "#e5e5e5", color: seccion.activa ? "#263d2d" : "#777" }}>{seccion.activa ? "Visible" : "Oculta"}</span>
+                  <button type="button" onClick={() => moverSeccion(seccion, -1)} disabled={guardandoSeccion || indice === 0} style={{ ...buttonStyle, padding: "7px 10px", background: "#e5eadf", color: "#263d2d", opacity: indice === 0 ? 0.45 : 1 }}>↑</button>
+                  <button type="button" onClick={() => moverSeccion(seccion, 1)} disabled={guardandoSeccion || indice === secciones.length - 1} style={{ ...buttonStyle, padding: "7px 10px", background: "#e5eadf", color: "#263d2d", opacity: indice === secciones.length - 1 ? 0.45 : 1 }}>↓</button>
+                  <button type="button" onClick={() => iniciarEdicionSeccion(seccion)} disabled={guardandoSeccion} style={{ ...buttonStyle, padding: "7px 11px", background: "#263d2d", color: "#fff" }}>Editar</button>
+                  <button type="button" onClick={() => alternarActivaSeccion(seccion)} disabled={guardandoSeccion} style={{ ...buttonStyle, padding: "7px 11px", background: "#e5eadf", color: "#263d2d" }}>{seccion.activa ? "Ocultar" : "Mostrar"}</button>
+                  <button type="button" onClick={() => eliminarCategoria(seccion)} disabled={guardandoSeccion} style={{ border: "none", background: "#f1dede", color: "#9b3333", borderRadius: "6px", cursor: "pointer", padding: "8px 11px", fontWeight: 700 }}>Eliminar</button>
+                </>}
+              </div>)}
+              {secciones.length === 0 && <p style={{ margin: 0, color: "#666" }}>No hay secciones cargadas todavía.</p>}
+            </div>
+          </div>}
+        </div>
+
+        {/* =========================
             CATEGORÍAS Y SUBCATEGORÍAS
         ========================= */}
-        <div ref={categoriasRef} id="admin-categorias" style={{ display: seccionAbierta === "categorias" ? "block" : "none", scrollMarginTop: "24px" }}>
         <div style={{ background: "#fff", borderRadius: "14px", padding: "20px", marginBottom: "25px", boxShadow: "0 4px 20px rgba(0,0,0,0.06)" }}>
-          <h2 style={{ margin: 0, color: "#263d2d" }}>Categorías y subcategorías</h2>
-          <p style={{ margin: "5px 0 0", color: "#666", fontSize: "14px" }}>Creá categorías principales y después agregales todas las subcategorías que necesites.</p>
-          {categorias.length === 0 && <div style={{ marginTop: "15px", padding: "12px 14px", background: "#fff7e6", border: "1px solid #ead7aa", borderRadius: "9px", color: "#6b571e", fontSize: "14px" }}>No hay categorías jerárquicas cargadas. Ejecutá primero <strong>LuckePet_migracion_supabase.sql</strong> en Supabase.</div>}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+            <div><h2 style={{ margin: 0, color: "#263d2d" }}>Categorías y subcategorías</h2><p style={{ margin: "5px 0 0", color: "#666", fontSize: "14px" }}>Organizá las categorías que aparecerán en la hamburguesa de la tienda.</p></div>
+          </div>
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "15px" }}>
-            <input value={nuevaCategoriaJerarquica} onChange={e => setNuevaCategoriaJerarquica(e.target.value)} onKeyDown={e => { if(e.key === "Enter") agregarCategoriaPrincipal(); }} placeholder="Nueva categoría principal" style={{ ...inputStyle, flex: 1, minWidth: "230px" }} disabled={guardandoCategoria} />
-            <button type="button" onClick={agregarCategoriaPrincipal} disabled={guardandoCategoria} style={{ ...buttonStyle, background: "#263d2d", color: "#fff" }}>+ Categoría</button>
-          </div>
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "10px" }}>
-            <select value={categoriaPadreNueva} onChange={e => setCategoriaPadreNueva(e.target.value ? Number(e.target.value) : "")} style={{ ...inputStyle, maxWidth: "300px" }} disabled={guardandoCategoria}>
-              <option value="">Elegí categoría padre...</option>
-              {categorias.map(c => <option key={c.id} value={c.id}>{c.parent_id === null ? c.nombre : `↳ ${c.nombre}`}</option>)}
+            <select value={categoriaPadreNueva} onChange={(e) => setCategoriaPadreNueva(e.target.value ? Number(e.target.value) : "")} style={{ ...inputStyle, maxWidth: "260px" }}>
+              <option value="">Categoría principal...</option>
+              {categorias.filter(c => c.parent_id === null).map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>
-            <input value={nuevaSubcategoria} onChange={e => setNuevaSubcategoria(e.target.value)} onKeyDown={e => { if(e.key === "Enter") agregarCategoriaJerarquica(); }} placeholder="Nueva subcategoría" style={{ ...inputStyle, flex: 1, minWidth: "230px" }} disabled={guardandoCategoria} />
-            <button type="button" onClick={agregarCategoriaJerarquica} disabled={guardandoCategoria} style={{ ...buttonStyle, background: "#e5eadf", color: "#263d2d" }}>+ Subcategoría</button>
+            <input value={nuevaSubcategoria} onChange={(e) => setNuevaSubcategoria(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") agregarCategoriaJerarquica(); }} placeholder="Nueva subcategoría" style={{ ...inputStyle, flex: 1, minWidth: "220px" }} />
+            <button type="button" onClick={agregarCategoriaJerarquica} disabled={guardandoCategoria} style={{ ...buttonStyle, background: "#263d2d", color: "#fff" }}>+ Subcategoría</button>
           </div>
-          <div style={{ marginTop: "18px" }}>
-            {categorias.filter(c => c.parent_id === null).map(parent => (
-              <div key={parent.id} style={{ border: "1px solid #dfe5db", borderRadius: "10px", padding: "10px", marginBottom: "8px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <strong style={{ flex: 1, color: "#263d2d" }}>{parent.nombre}</strong>
-                  <button type="button" onClick={() => eliminarCategoriaJerarquica(parent)} disabled={guardandoCategoria} style={{ border: "none", background: "#f1dede", color: "#9b3333", borderRadius: "6px", cursor: "pointer", padding: "5px 8px", fontWeight: 700 }}>Eliminar</button>
-                </div>
-                {renderArbolCategorias(parent.id)}
-              </div>
-            ))}
+          <div style={{ marginTop: "18px", display: "grid", gap: "10px" }}>
+            {categorias.filter(c => c.parent_id === null).map(parent => <div key={parent.id} style={{ border: "1px solid #e5e5df", borderRadius: "10px", padding: "12px" }}><strong style={{ color: "#263d2d" }}>{parent.nombre}</strong><div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px" }}>{categorias.filter(c => c.parent_id === parent.id).map(sub => <span key={sub.id} style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "6px 9px", background: "#f1f3ec", borderRadius: "999px", fontSize: "13px" }}>{sub.nombre}<button type="button" onClick={() => eliminarCategoriaJerarquica(sub)} style={{ border: "none", background: "transparent", color: "#9b3333", cursor: "pointer", fontWeight: 700 }}>×</button></span>)}</div></div>)}
+            {categorias.length === 0 && <p style={{ color: "#777", margin: 0 }}>Ejecutá la migración SQL para habilitar categorías jerárquicas.</p>}
           </div>
-        </div>
         </div>
 
         {/* =========================
             ESTADÍSTICAS
         ========================= */}
 
-        <div ref={estadisticasRef} id="admin-estadisticas" style={{ display: seccionAbierta === "estadisticas" ? "block" : "none", scrollMarginTop: "24px" }}>
+        <div style={{ display: seccionAbierta === "estadisticas" ? "block" : "none" }}>
         <div
           style={{
             background: "#fff",
@@ -3072,6 +3175,43 @@ async function eliminarImagen(imagen: ImagenProducto) {
               {cargandoEstadisticas
                 ? "Actualizando..."
                 : "Actualizar"}
+            </button>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "12px",
+              flexWrap: "wrap",
+              padding: "12px 14px",
+              marginBottom: "16px",
+              background: "#f8f8f4",
+              border: "1px solid #e5e5df",
+              borderRadius: "10px",
+            }}
+          >
+            <div>
+              <strong style={{ display: "block", color: "#263d2d", fontSize: "14px" }}>
+                Pruebas de este dispositivo
+              </strong>
+              <span style={{ color: "#777", fontSize: "13px" }}>
+                Si está activado, tus entradas desde este dispositivo no se cuentan.
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={cambiarExclusionEstadisticas}
+              style={{
+                ...buttonStyle,
+                background: excluirEsteDispositivo ? "#263d2d" : "#e5eadf",
+                color: excluirEsteDispositivo ? "#fff" : "#263d2d",
+                minWidth: "145px",
+              }}
+            >
+              {excluirEsteDispositivo ? "No contarme" : "Contarme"}
             </button>
           </div>
 
@@ -3158,7 +3298,7 @@ async function eliminarImagen(imagen: ImagenProducto) {
                     valor: visitantesUnicos,
                   },
                   {
-                    titulo: "Visitas totales",
+                    titulo: "Sesiones / visitas",
                     valor: totalVisitas,
                   },
                   {
@@ -3170,7 +3310,7 @@ async function eliminarImagen(imagen: ImagenProducto) {
                     valor: visitasPC,
                   },
                   {
-                    titulo: "Vistas de productos",
+                    titulo: "Productos vistos (únicos)",
                     valor: productosVistos,
                   },
                   {
@@ -3807,7 +3947,7 @@ async function eliminarImagen(imagen: ImagenProducto) {
             PEDIDOS
         ========================= */}
 
-        <div ref={pedidosRef} id="admin-pedidos" style={{ display: seccionAbierta === "pedidos" ? "block" : "none", scrollMarginTop: "24px" }}>
+        <div style={{ display: seccionAbierta === "pedidos" ? "block" : "none" }}>
         <div
           style={{
             background: "#fff",
@@ -4413,7 +4553,7 @@ async function eliminarImagen(imagen: ImagenProducto) {
             BUSCADOR
         ========================= */}
 
-        <div ref={productosRef} id="admin-productos" style={{ display: seccionAbierta === "productos" ? "block" : "none", scrollMarginTop: "24px" }}>
+        <div style={{ display: seccionAbierta === "productos" ? "block" : "none" }}>
         <div
           style={{
             background: "#fff",
@@ -6459,7 +6599,7 @@ onDragEnd={() => {
                                   clave
                                 ] || [];
 
-  return (
+                              return (
                                 <div
                                   key={
                                     variante.id ||

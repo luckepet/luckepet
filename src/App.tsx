@@ -56,50 +56,32 @@ type ItemCarrito = Producto & {
 }
 
 // =====================================================
-// CONFIGURACIÓN LUCKEPET
+// WHATSAPP LUCKEPET
 // =====================================================
 
 const WHATSAPP_NUMERO = '5492664015639'
-const MONEDA = '$'
-const COLOR_MENU_PRINCIPAL = '#35543e'
-const COLOR_MENU_OSCURO = '#263d2d'
-const COLOR_MENU_MEDIO = '#3e6048'
-const COLOR_MENU_CLARO = '#213428'
-const COLOR_MENU_ALTERNATIVO = '#4b7355'
-const COLOR_MENU_SECUNDARIO = '#3f6249'
-const COLOR_MENU_BOTON = '#5a8062'
-const COLOR_MENU_BOTON_HOVER = '#4b6f54'
-
-const GRADIENTE_MENU_PRINCIPAL = `linear-gradient(135deg, ${COLOR_MENU_PRINCIPAL} 0%, ${COLOR_MENU_OSCURO} 100%)`
-const GRADIENTE_MENU_ALTERNATIVO = `linear-gradient(135deg, ${COLOR_MENU_ALTERNATIVO} 0%, ${COLOR_MENU_SECUNDARIO} 100%)`
-const GRADIENTE_MENU_BOTON = `linear-gradient(135deg, ${COLOR_MENU_BOTON} 0%, ${COLOR_MENU_BOTON_HOVER} 100%)`
-const GRADIENTE_MENU_OSCURO = `linear-gradient(145deg, ${COLOR_MENU_PRINCIPAL} 0%, ${COLOR_MENU_OSCURO} 100%)`
-const GRADIENTE_MENU_HOVER = `linear-gradient(145deg, ${COLOR_MENU_MEDIO} 0%, ${COLOR_MENU_OSCURO} 100%)`
-const GRADIENTE_MENU_FONDO = `linear-gradient(180deg, ${COLOR_MENU_OSCURO} 0%, ${COLOR_MENU_CLARO} 100%)`
-
-const aplicarColoresTienda = () => {
-  // Los colores ya están definidos en App.css.
-}
-
 
 // =====================================================
 // ESTADÍSTICAS
 // =====================================================
 
+const DURACION_SESION_MS = 30 * 60 * 1000
+
 const obtenerSessionId = () => {
   const clave = 'luckepet_session_id'
 
   let sessionId = localStorage.getItem(clave)
+  const ultimaActividad = Number(
+    localStorage.getItem('luckepet_ultima_actividad') || 0
+  )
 
-  if (!sessionId) {
+  // Una sesión nueva después de 30 minutos de inactividad.
+  if (!sessionId || !ultimaActividad || Date.now() - ultimaActividad > DURACION_SESION_MS) {
     sessionId = crypto.randomUUID()
-
-    localStorage.setItem(
-      clave,
-      sessionId
-    )
+    localStorage.setItem(clave, sessionId)
   }
 
+  localStorage.setItem('luckepet_ultima_actividad', String(Date.now()))
   return sessionId
 }
 
@@ -109,13 +91,39 @@ const obtenerDispositivo = () => {
     : 'PC'
 }
 
+const claveEventoEstadistica = (evento: string, producto?: Producto | null) => {
+  if (evento === 'producto_visto' && producto?.id) {
+    return `luckepet_stat_producto_${producto.id}`
+  }
+  if (evento === 'visita') {
+    return 'luckepet_stat_visita'
+  }
+  return ''
+}
+
 const registrarEvento = async (
   evento: string,
   producto?: Producto | null
 ) => {
   try {
+    // Permite que la dueña/desarrolladora excluya su propio dispositivo
+    // durante las pruebas, sin afectar las estadísticas de los clientes.
+    if (localStorage.getItem('luckepet_excluir_estadisticas') === 'true') {
+      return
+    }
+
     const sessionId = obtenerSessionId()
     const dispositivo = obtenerDispositivo()
+    const clave = claveEventoEstadistica(evento, producto)
+
+    // No duplicar visitas ni vistas del mismo producto durante la misma sesión.
+    if (clave) {
+      const ultimoRegistro = Number(localStorage.getItem(clave) || 0)
+      if (ultimoRegistro && Date.now() - ultimoRegistro < DURACION_SESION_MS) {
+        return
+      }
+      localStorage.setItem(clave, String(Date.now()))
+    }
 
     const { error } = await supabase
       .from('Visitas')
@@ -333,14 +341,6 @@ const [, setImagenesGenerales] =
   }, [])
 
   // =====================================================
-  // COLORES GLOBALES DE LA TIENDA
-  // =====================================================
-
-  useEffect(() => {
-    aplicarColoresTienda()
-  }, [])
-
-  // =====================================================
   // CARGAR FOTOS DE PORTADA
   // =====================================================
 
@@ -355,15 +355,15 @@ const [, setImagenesGenerales] =
   // =====================================================
 
   useEffect(() => {
-    if (
-      !window.history.state?.tiendaBase
-    ) {
+    if (!window.history.state?.luckepetBase) {
+      const urlSinHash = window.location.href.split('#')[0]
       window.history.replaceState(
         {
-          tiendaBase: true
+          ...(window.history.state || {}),
+          luckepetBase: true
         },
         '',
-        window.location.href
+        urlSinHash
       )
     }
 
@@ -454,86 +454,58 @@ async function cargarProductos() {
   // =====================================================
 
   async function cargarFotosPortada() {
-    const mapa: Record<number, string> = {}
+    const mapa: Record<
+      number,
+      string
+    > = {}
 
-    // 1. Fotos generales del producto.
     const {
-      data: imagenesGenerales,
-      error: errorGenerales
+      data,
+      error
     } = await supabase
       .from('ProductoImagenes')
-      .select('producto_id, image_url, orden')
-      .order('orden', { ascending: true })
-
-    if (errorGenerales) {
-      console.error('ERROR FOTOS PORTADA:', errorGenerales)
-    } else {
-      ;(imagenesGenerales || []).forEach((imagen: Imagen) => {
-        if (
-          imagen.producto_id &&
-          imagen.image_url?.trim() &&
-          !mapa[imagen.producto_id]
-        ) {
-          mapa[imagen.producto_id] = imagen.image_url.trim()
-        }
+      .select(
+        'producto_id, image_url, orden'
+      )
+      .order('orden', {
+        ascending: true
       })
+
+    if (error) {
+      console.error(
+        'ERROR FOTOS PORTADA:',
+        error
+      )
+    } else {
+      ;(data || []).forEach(
+        (imagen: Imagen) => {
+          if (
+            imagen.producto_id &&
+            imagen.image_url?.trim() &&
+            !mapa[
+              imagen.producto_id
+            ]
+          ) {
+            mapa[
+              imagen.producto_id
+            ] =
+              imagen.image_url.trim()
+          }
+        }
+      )
     }
 
-    // 2. Si un producto tiene talle/modelo y sus fotos están guardadas
-    //    en ProductoVarianteImagenes, usamos la primera foto de cualquiera
-    //    de sus variantes como portada. Esto evita mostrar "Sin imagen".
-    const { data: variantes, error: errorVariantes } = await supabase
-      .from('ProductoVariantes')
-      .select('id, producto_id')
-      .order('id', { ascending: true })
-
-    if (errorVariantes) {
-      console.error('ERROR VARIANTES PARA PORTADAS:', errorVariantes)
-    } else if (variantes && variantes.length > 0) {
-      const ids = variantes
-        .map((variante) => Number(variante.id))
-        .filter((id) => Number.isFinite(id))
-
-      const { data: imagenesVariantesPortada, error: errorImagenesVariantes } =
-        await supabase
-          .from('ProductoVarianteImagenes')
-          .select('variante_id, image_url, orden')
-          .in('variante_id', ids)
-          .order('orden', { ascending: true })
-
-      if (errorImagenesVariantes) {
-        console.error(
-          'ERROR FOTOS DE VARIANTES PARA PORTADAS:',
-          errorImagenesVariantes
-        )
-      } else {
-        const productoPorVariante: Record<number, number> = {}
-
-        variantes.forEach((variante) => {
-          const varianteId = Number(variante.id)
-          const productoId = Number(variante.producto_id)
-          if (Number.isFinite(varianteId) && Number.isFinite(productoId)) {
-            productoPorVariante[varianteId] = productoId
-          }
-        })
-
-        ;(imagenesVariantesPortada || []).forEach((imagen) => {
-          const productoId = productoPorVariante[Number(imagen.variante_id)]
-          const url = imagen.image_url?.trim()
-
-          if (productoId && url && !mapa[productoId]) {
-            mapa[productoId] = url
-          }
-        })
+    productos.forEach(
+      producto => {
+        if (
+          !mapa[producto.id] &&
+          producto.image?.trim()
+        ) {
+          mapa[producto.id] =
+            producto.image.trim()
+        }
       }
-    }
-
-    // 3. Último respaldo: columna Productos.image.
-    productos.forEach((producto) => {
-      if (!mapa[producto.id] && producto.image?.trim()) {
-        mapa[producto.id] = producto.image.trim()
-      }
-    })
+    )
 
     setImagenesPortada(mapa)
   }
@@ -779,13 +751,17 @@ async function cargarProductos() {
       producto
     )
 
+    // Creamos una entrada propia para el detalle. Así el botón Atrás
+    // del celular vuelve al listado de LuckePet en vez de salir del sitio.
+    const urlBase = window.location.href.split('#')[0]
     window.history.pushState(
       {
-        tiendaProducto: true,
+        ...(window.history.state || {}),
+        luckepetProducto: true,
         productoId: producto.id
       },
       '',
-      window.location.href
+      `${urlBase}#producto-${producto.id}`
     )
 
     setProductoSeleccionado(
@@ -866,7 +842,7 @@ async function cargarProductos() {
 
   const cerrarProducto = () => {
     if (
-      window.history.state?.tiendaProducto
+      window.history.state?.luckepetProducto
     ) {
       window.history.back()
       return
@@ -1042,67 +1018,27 @@ async function cargarProductos() {
   // PRECIO ACTUAL
   // =====================================================
 
-const obtenerPrecioActual = () => {
-  if (!productoSeleccionado) {
-    return 0
-  }
-
-  // Si no hay variantes, usamos el precio general.
-  if (variantes.length === 0) {
-    return calcularPrecioFinal(
-      productoSeleccionado.price,
-      productoSeleccionado
-    )
-  }
-
-  // Si hay talle seleccionado, buscamos SIEMPRE
-  // la variante correspondiente a ese talle.
-  if (talleSeleccionado) {
-    const talleBuscado = talleSeleccionado.trim()
-
-    const variantesDelTalle = variantes.filter(
-      variante =>
-        variante.talle?.trim() === talleBuscado
-    )
-
-    // Si además hay color, usamos talle + color.
-    if (colorSeleccionado) {
-      const colorBuscado = colorSeleccionado.trim()
-
-      const varianteConColor = variantesDelTalle.find(
-        variante =>
-          variante.color?.trim() === colorBuscado
-      )
-
-      if (varianteConColor) {
-        return calcularPrecioFinal(
-          Number(varianteConColor.precio || 0),
-          productoSeleccionado
-        )
+  const obtenerPrecioActual =
+    () => {
+      if (
+        !productoSeleccionado
+      ) {
+        return 0
       }
-<<<<<<< HEAD
 
       if (
         variantes.length === 0
       ) {
-        return calcularPrecioFinal(
-          productoSeleccionado.price,
-          productoSeleccionado
-        )
+        return calcularPrecioFinal(productoSeleccionado.price, productoSeleccionado)
       }
 
-      // Si ya hay talle + color elegidos,
-      // usamos exactamente esa variante.
       const varianteExacta =
         obtenerVarianteSeleccionada()
 
       if (
         varianteExacta
       ) {
-        return calcularPrecioFinal(
-          varianteExacta.precio,
-          productoSeleccionado
-        )
+        return calcularPrecioFinal(varianteExacta.precio, productoSeleccionado)
       }
 
       if (
@@ -1115,97 +1051,34 @@ const obtenerPrecioActual = () => {
               talleSeleccionado
           )
 
-        // Si el talle/modelo tiene una variante
-        // sin color, usamos SU precio específico.
-        // Esto permite, por ejemplo:
-        // Pollito = $10.000
-        // Ratoncito = $12.000
-        // sin necesidad de elegir color.
-        const varianteSinColor =
-          variantesDelTalle.find(
-            variante =>
-              !variante.color?.trim()
-          )
-
         if (
-          varianteSinColor
+          variantesDelTalle.length >
+          0
         ) {
-          return calcularPrecioFinal(
-            varianteSinColor.precio,
-            productoSeleccionado
-          )
-        }
+          const precios =
+            variantesDelTalle
+              .map(
+                variante =>
+                  Number(
+                    variante.precio ||
+                      0
+                  )
+              )
+              .filter(
+                precio =>
+                  precio > 0
+              )
 
-        // Si el talle tiene colores pero todavía
-        // no se eligió uno, mostramos el menor
-        // precio disponible para ese talle.
-        const precios =
-          variantesDelTalle
-            .map(
-              variante =>
-                Number(
-                  variante.precio ||
-                    0
-                )
-            )
-            .filter(
-              precio =>
-                precio > 0
-            )
-
-        if (
-          precios.length > 0
-        ) {
-          return calcularPrecioFinal(
-            Math.min(...precios),
-            productoSeleccionado
-          )
+          if (
+            precios.length > 0
+          ) {
+            return calcularPrecioFinal(Math.min(...precios), productoSeleccionado)
+          }
         }
       }
 
-      return calcularPrecioFinal(
-        productoSeleccionado.price,
-        productoSeleccionado
-      )
-=======
->>>>>>> 0c0e1d7 (Corregir precio por talle)
+      return calcularPrecioFinal(productoSeleccionado.price, productoSeleccionado)
     }
-
-    // Si el talle no necesita color, usamos su precio.
-    const varianteSinColor = variantesDelTalle.find(
-      variante =>
-        !variante.color?.trim()
-    )
-
-    if (varianteSinColor) {
-      return calcularPrecioFinal(
-        Number(varianteSinColor.precio || 0),
-        productoSeleccionado
-      )
-    }
-
-    // Si tiene colores pero todavía no se eligió uno,
-    // usamos el precio más bajo de ese talle.
-    const precios = variantesDelTalle
-      .map(variante =>
-        Number(variante.precio || 0)
-      )
-      .filter(precio => precio > 0)
-
-    if (precios.length > 0) {
-      return calcularPrecioFinal(
-        Math.min(...precios),
-        productoSeleccionado
-      )
-    }
-  }
-
-  // Sin talle seleccionado: precio general.
-  return calcularPrecioFinal(
-    productoSeleccionado.price,
-    productoSeleccionado
-  )
-}
 
   // =====================================================
   // CARRITO
@@ -1689,11 +1562,11 @@ const obtenerPrecioActual = () => {
         )
 
       const mensajeWhatsApp =
-        `${'LuckePet'} 👋\n` +
+        `Hola LuckePet 👋\n` +
         `Ya realicé mi compra.\n\n` +
         `N.º de pedido: #${numeroPedido}\n` +
         `Nombre: ${nombreCompleto}\n` +
-        `Total: ${MONEDA}${totalPedido}\n\n` +
+        `Total: $${totalPedido}\n\n` +
         `Muchas gracias.`
 
       const urlWhatsApp =
@@ -1885,6 +1758,11 @@ const obtenerPrecioActual = () => {
   const seleccionarCategoria = (nombre: string) => {
     setCategoriaSeleccionada(nombre)
     setMenuCategoriasAbierto(false)
+
+    // Cada categoría empieza siempre desde arriba.
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: 'auto' })
+    })
   }
 
   function renderMenuCategorias(padreId: number | null, nivel = 0): any {
@@ -1906,10 +1784,10 @@ const obtenerPrecioActual = () => {
                 alignItems: 'center',
                 gap: '4px',
                 background: nivel === 0
-                  ? GRADIENTE_MENU_PRINCIPAL
+                  ? 'linear-gradient(135deg, #35543e 0%, #263d2d 100%)'
                   : nivel === 1
-                    ? GRADIENTE_MENU_ALTERNATIVO
-                    : GRADIENTE_MENU_BOTON,
+                    ? 'linear-gradient(135deg, #4b7355 0%, #3f6249 100%)'
+                    : 'linear-gradient(135deg, #5a8062 0%, #4b6f54 100%)',
                 borderRadius: '13px',
                 overflow: 'hidden',
                 border: '1px solid rgba(255,255,255,.13)',
@@ -1935,7 +1813,7 @@ const obtenerPrecioActual = () => {
                   border: 0,
                   background: 'transparent',
                   padding: '13px 12px',
-                  paddingLeft: `${12 + nivel * 12}px`,
+                  paddingLeft: '12px',
                   fontWeight: nivel === 0 ? 750 : 550,
                   color: '#fff',
                   cursor: 'pointer',
@@ -1997,10 +1875,9 @@ const obtenerPrecioActual = () => {
             {tieneHijos && expandida && (
               <div
                 style={{
-                  marginTop: '6px',
-                  marginLeft: nivel === 0 ? '13px' : '9px',
-                  paddingLeft: '11px',
-                  borderLeft: '2px solid rgba(255,255,255,.16)',
+                  marginTop: '8px',
+                  marginLeft: 0,
+                  paddingLeft: 0,
                   animation: 'luckepetCategoryOpen .18s ease'
                 }}
               >
@@ -2014,23 +1891,23 @@ const obtenerPrecioActual = () => {
                     gap: '8px',
                     textAlign: 'left',
                     border: '1px solid rgba(255,255,255,.14)',
-                    background: 'rgba(255,255,255,.11)',
-                    padding: '9px 11px',
-                    borderRadius: '9px',
-                    fontWeight: 700,
+                    background: 'linear-gradient(135deg, #4b7355 0%, #3f6249 100%)',
+                    padding: '13px 12px',
+                    borderRadius: '13px',
+                    fontWeight: 550,
                     color: '#fff',
                     cursor: 'pointer',
-                    fontSize: '12px',
-                    marginBottom: '6px',
+                    fontSize: '14px',
+                    marginBottom: '8px',
                     boxSizing: 'border-box',
                     transition: 'background .18s ease, transform .18s ease'
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'rgba(255,255,255,.17)'
+                    e.currentTarget.style.background = 'linear-gradient(135deg, #557f5f 0%, #476e50 100%)'
                     e.currentTarget.style.transform = 'translateX(2px)'
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'rgba(255,255,255,.11)'
+                    e.currentTarget.style.background = 'linear-gradient(135deg, #4b7355 0%, #3f6249 100%)'
                     e.currentTarget.style.transform = 'translateX(0)'
                   }}
                 >
@@ -2083,7 +1960,7 @@ const obtenerPrecioActual = () => {
             border: '1px solid rgba(255,255,255,.18)',
             borderLeft: 'none',
             borderRadius: '0 16px 16px 0',
-            background: GRADIENTE_MENU_OSCURO,
+            background: 'linear-gradient(145deg, #35543e 0%, #263d2d 100%)',
             color: '#fff',
             boxShadow: '5px 6px 18px rgba(0,0,0,.20)',
             cursor: 'pointer',
@@ -2094,11 +1971,11 @@ const obtenerPrecioActual = () => {
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.width = '60px'
-            e.currentTarget.style.background = GRADIENTE_MENU_HOVER
+            e.currentTarget.style.background = 'linear-gradient(145deg, #3e6048 0%, #263d2d 100%)'
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.width = '56px'
-            e.currentTarget.style.background = GRADIENTE_MENU_OSCURO
+            e.currentTarget.style.background = 'linear-gradient(145deg, #35543e 0%, #263d2d 100%)'
           }}
         >
           <span
@@ -2126,7 +2003,7 @@ const obtenerPrecioActual = () => {
             overflowX: 'hidden',
             overscrollBehaviorY: 'contain',
             WebkitOverflowScrolling: 'touch',
-            background: GRADIENTE_MENU_FONDO,
+            background: 'linear-gradient(180deg, #263d2d 0%, #213428 100%)',
             border: '1px solid rgba(255,255,255,.13)',
             borderLeft: 'none',
             borderRadius: '0 18px 18px 0',
@@ -2139,7 +2016,7 @@ const obtenerPrecioActual = () => {
             boxSizing: 'border-box'
           }}
         >
-          <div style={{ position: 'sticky', top: 0, zIndex: 2, background: `linear-gradient(180deg, ${COLOR_MENU_OSCURO} 80%, rgba(38,61,45,0) 100%)`, paddingBottom: '11px' }}>
+          <div style={{ position: 'sticky', top: 0, zIndex: 2, background: 'linear-gradient(180deg, #263d2d 80%, rgba(38,61,45,0) 100%)', paddingBottom: '11px' }}>
             <button
               type="button"
               onClick={() => seleccionarCategoria('Todos')}
@@ -2154,7 +2031,7 @@ const obtenerPrecioActual = () => {
                 padding: '11px 12px',
                 borderRadius: '11px',
                 fontWeight: 800,
-                color: COLOR_MENU_OSCURO,
+                color: '#263d2d',
                 cursor: 'pointer',
                 boxShadow: '0 3px 10px rgba(0,0,0,.14)',
                 transition: 'transform .18s ease, box-shadow .18s ease'
@@ -2169,12 +2046,12 @@ const obtenerPrecioActual = () => {
               }}
             >
               <span aria-hidden="true">⌂</span>
-              <span>{'Todos los productos'}</span>
+              <span>Todos los productos</span>
             </button>
           </div>
 
           {categorias.length > 0 ? renderMenuCategorias(null) : (
-            <div style={{ color: '#fff', padding: '14px 8px', fontSize: '13px' }}>{'No hay categorías disponibles.'}</div>
+            <div style={{ color: '#fff', padding: '14px 8px', fontSize: '13px' }}>No hay categorías disponibles.</div>
           )}
         </div>
       </div>
@@ -2204,7 +2081,7 @@ const obtenerPrecioActual = () => {
 
           {carrito.length === 0 ? (
             <p>
-              {'Tu carrito está vacío.'}
+              Tu carrito está vacío
             </p>
           ) : (
             <>
@@ -2253,7 +2130,7 @@ const obtenerPrecioActual = () => {
                       )}
 
                       <p>
-                        {MONEDA}
+                        $
                         {Number(
                           producto.price
                         ).toLocaleString(
@@ -2317,7 +2194,7 @@ const obtenerPrecioActual = () => {
                   </span>
 
                   <strong>
-                    {MONEDA}
+                    $
                     {totalCarrito.toLocaleString(
                       'es-AR'
                     )}
@@ -2369,7 +2246,7 @@ const obtenerPrecioActual = () => {
               </button>
 
               <span>
-                {'Finalizar compra'}
+                Finalizar compra
               </span>
 
               <button
@@ -2393,16 +2270,17 @@ const obtenerPrecioActual = () => {
                 }
               >
                 <h1>
-                  {'Datos de entrega'}
+                  Datos de entrega
                 </h1>
 
                 <p className="checkout-subtitulo">
-                  {'Completá tus datos para enviar el pedido.'}
+                  Completá tus datos para
+                  enviar el pedido.
                 </p>
 
                 <div className="checkout-resumen">
                   <strong>
-                    {'Resumen del pedido'}
+                    Resumen del pedido
                   </strong>
 
                   {carrito.map(
@@ -2428,7 +2306,7 @@ const obtenerPrecioActual = () => {
                         </span>
 
                         <strong>
-                          {MONEDA}
+                          $
                           {(
                             Number(
                               producto.price ||
@@ -2450,7 +2328,7 @@ const obtenerPrecioActual = () => {
                     </span>
 
                     <strong>
-                      {MONEDA}
+                      $
                       {totalCarrito.toLocaleString(
                         'es-AR'
                       )}
@@ -2664,7 +2542,7 @@ const obtenerPrecioActual = () => {
                       )
                     }
                   >
-                    {'Continuar por WhatsApp'}
+                    Continuar por WhatsApp
                   </button>
                 )}
 
@@ -2675,7 +2553,7 @@ const obtenerPrecioActual = () => {
                     cerrarCheckout
                   }
                 >
-                  {'Seguir comprando'}
+                  Seguir comprando
                 </button>
               </div>
             )}
@@ -2692,11 +2570,13 @@ const obtenerPrecioActual = () => {
           {productosFiltrados.length === 0 ? (
             <div className="sin-productos">
               <h3>
-                🐾 {'No encontramos productos'}
+                🐾 No encontramos
+                productos
               </h3>
 
               <p>
-                {'Probá buscando otro producto.'}
+                Probá buscando otro
+                producto.
               </p>
             </div>
           ) : (
@@ -2785,7 +2665,7 @@ const obtenerPrecioActual = () => {
                                   '1px'
                               }}
                             >
-                              {'SIN STOCK'}
+                              SIN STOCK
                             </div>
                           )}
                         </div>
@@ -2802,7 +2682,7 @@ const obtenerPrecioActual = () => {
                               'center'
                           }}
                         >
-                          {'Sin imagen'}
+                          Sin imagen
                         </div>
                       )}
                     </div>
@@ -2815,9 +2695,9 @@ const obtenerPrecioActual = () => {
                       </h3>
 
                       <div className="precio-carrito">
-                        {Number(producto.descuento_porcentaje || 0) > 0 && <span style={{ textDecoration: 'line-through', color: '#888', fontSize: '13px', marginRight: '6px' }}>{MONEDA}{Number(producto.price || 0).toLocaleString('es-AR')}</span>}
+                        {Number(producto.descuento_porcentaje || 0) > 0 && <span style={{ textDecoration: 'line-through', color: '#888', fontSize: '13px', marginRight: '6px' }}>${Number(producto.price || 0).toLocaleString('es-AR')}</span>}
                         <strong className="precio">
-                          {MONEDA}
+                          $
                           {calcularPrecioFinal(producto.price, producto).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                         </strong>
 
@@ -3045,7 +2925,7 @@ const obtenerPrecioActual = () => {
                   />
                 ) : (
                   <div className="producto-sin-imagen">
-                    {'Sin imagen'}
+                    Sin imagen
                   </div>
                 )}
 
@@ -3143,8 +3023,8 @@ const obtenerPrecioActual = () => {
                 </h1>
 
                 <div className="producto-precio">
-                  {Number(productoSeleccionado.descuento_porcentaje || 0) > 0 && !talleSeleccionado && <span style={{ textDecoration: 'line-through', color: '#888', fontSize: '14px', marginRight: '8px' }}>{MONEDA}{Number(productoSeleccionado.price || 0).toLocaleString('es-AR')}</span>}
-                  {MONEDA}{obtenerPrecioActual().toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                  {Number(productoSeleccionado.descuento_porcentaje || 0) > 0 && !talleSeleccionado && <span style={{ textDecoration: 'line-through', color: '#888', fontSize: '14px', marginRight: '8px' }}>${Number(productoSeleccionado.price || 0).toLocaleString('es-AR')}</span>}
+                  ${obtenerPrecioActual().toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                   {Number(productoSeleccionado.descuento_porcentaje || 0) > 0 && <span style={{ marginLeft: '8px', fontSize: '13px', color: '#7b2d2d' }}>-{Number(productoSeleccionado.descuento_porcentaje)}%</span>}
                 </div>
 
@@ -3261,6 +3141,20 @@ const obtenerPrecioActual = () => {
                       </div>
                     </div>
                   )}
+
+                {/* STOCK */}
+
+                <div className="producto-stock">
+                  <span className="stock-punto"></span>
+
+                  {stockDisponible(
+                    productoSeleccionado
+                  ) > 0
+                    ? `Stock disponible: ${stockDisponible(
+                        productoSeleccionado
+                      )}`
+                    : 'Sin stock'}
+                </div>
               </div>
 
               {/* BOTÓN CARRITO */}
@@ -3363,7 +3257,7 @@ const obtenerPrecioActual = () => {
                     productoSeleccionado
                   ) > 0
                     ? 'Agregar al carrito'
-                    : 'SIN STOCK'}
+                    : 'Sin stock'}
                 </button>
               </div>
             </div>
