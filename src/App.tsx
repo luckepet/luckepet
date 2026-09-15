@@ -356,15 +356,18 @@ const [, setImagenesGenerales] =
 
   useEffect(() => {
     if (!window.history.state?.luckepetBase) {
-      const urlSinHash = window.location.href.split('#')[0]
-      window.history.replaceState(
-        {
-          ...(window.history.state || {}),
-          luckepetBase: true
-        },
-        '',
-        urlSinHash
-      )
+      const urlBase = window.location.href.split('#')[0]
+      const estadoBase = {
+        ...(window.history.state || {}),
+        luckepetBase: true,
+        luckepetListado: true
+      }
+
+      // Dejamos una entrada propia del listado antes de los detalles.
+      // Esto es importante cuando la tienda se abre desde Instagram:
+      // el primer Atrás vuelve al listado de LuckePet en lugar de salir.
+      window.history.replaceState(estadoBase, '', urlBase)
+      window.history.pushState(estadoBase, '', urlBase)
     }
 
     const manejarAtras = () => {
@@ -1760,9 +1763,15 @@ async function cargarProductos() {
     setMenuCategoriasAbierto(false)
 
     // Cada categoría empieza siempre desde arriba.
-    window.requestAnimationFrame(() => {
-      window.scrollTo({ top: 0, behavior: 'auto' })
-    })
+    const irArriba = () => {
+      window.scrollTo(0, 0)
+      document.documentElement.scrollTop = 0
+      document.body.scrollTop = 0
+    }
+
+    irArriba()
+    window.requestAnimationFrame(irArriba)
+    window.setTimeout(irArriba, 50)
   }
 
   function renderMenuCategorias(padreId: number | null, nivel = 0): any {
