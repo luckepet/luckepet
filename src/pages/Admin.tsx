@@ -147,6 +147,8 @@ function Admin() {
     Record<number, ImagenVariante[]>
   >({});
 
+  const [portadasVariantes, setPortadasVariantes] = useState<Record<number, string>>({});
+
   const [fotosNuevasVariantes, setFotosNuevasVariantes] =
     useState<Record<string, File[]>>({});
 
@@ -716,6 +718,14 @@ function Admin() {
     });
 
     setImagenesVariantes(mapa);
+
+    const portadas: Record<number, string> = {};
+    variantesCargadas.forEach((variante) => {
+      if (!variante.id) return;
+      const primera = (mapa[variante.id] || [])[0]?.image_url?.trim();
+      if (primera && !portadas[variante.producto_id]) portadas[variante.producto_id] = primera;
+    });
+    setPortadasVariantes(portadas);
   }
 
   // =========================
@@ -1111,115 +1121,6 @@ function Admin() {
   }
 
   // =========================
-  // ELIMINAR FOTO DE VARIANTE
-  // =========================
-
-  async function eliminarImagenVariante(
-    foto: ImagenVariante,
-    variante: Variante
-  ) {
-    if (!editando || !foto.id || !variante.id) return;
-
-    if (!window.confirm("¿Querés eliminar esta imagen de este talle/color?")) {
-      return;
-    }
-
-    const extraerRutaStorage = (url: string) => {
-      try {
-        const parsed = new URL(url);
-        const marker = "/storage/v1/object/public/PRODUCTOS/";
-        const index = parsed.pathname.indexOf(marker);
-        return index >= 0
-          ? decodeURIComponent(
-              parsed.pathname.slice(index + marker.length)
-            )
-          : null;
-      } catch {
-        return null;
-      }
-    };
-
-    const { data: existente, error: errorConsulta } = await supabase
-      .from("ProductoVarianteImagenes")
-      .select("id, variante_id, image_url")
-      .eq("id", foto.id)
-      .maybeSingle();
-
-    if (errorConsulta) {
-      console.error(
-        "ERROR CONSULTANDO FOTO DE VARIANTE:",
-        errorConsulta
-      );
-      alert(
-        `No se pudo comprobar la imagen:\n\n${errorConsulta.message}`
-      );
-      return;
-    }
-
-    if (!existente) {
-      setImagenesVariantes((actuales) => ({
-        ...actuales,
-        [variante.id!]: (
-          actuales[variante.id!] || []
-        ).filter((item) => item.id !== foto.id),
-      }));
-      return;
-    }
-
-    const { data: eliminadas, error: errorEliminar } = await supabase
-      .from("ProductoVarianteImagenes")
-      .delete()
-      .eq("id", foto.id)
-      .select("id, image_url");
-
-    if (errorEliminar) {
-      console.error(
-        "ERROR AL ELIMINAR FOTO DE VARIANTE:",
-        errorEliminar
-      );
-      alert(
-        `No se pudo eliminar la imagen:\n\n${errorEliminar.message}`
-      );
-      return;
-    }
-
-    if (!eliminadas || eliminadas.length === 0) {
-      alert(
-        "Supabase no eliminó la imagen. Revisá las políticas RLS de ProductoVarianteImagenes para permitir DELETE al usuario administrador."
-      );
-      return;
-    }
-
-    const urlGuardada =
-      (eliminadas[0] as any).image_url ||
-      existente.image_url ||
-      foto.image_url;
-
-    const rutaStorage = extraerRutaStorage(urlGuardada);
-
-    if (rutaStorage) {
-      const { error: storageError } = await supabase
-        .storage
-        .from("PRODUCTOS")
-        .remove([rutaStorage]);
-
-      if (storageError) {
-        console.warn(
-          "La fila fue eliminada, pero no se pudo borrar el archivo de Storage:",
-          storageError
-        );
-      }
-    }
-
-    setImagenesVariantes((actuales) => ({
-      ...actuales,
-      [variante.id!]: (
-        actuales[variante.id!] || []
-      ).filter((item) => item.id !== foto.id),
-    }));
-  }
-
-  // =========================
   // SUBIR FOTOS DE VARIANTE
   // =========================
 
@@ -1575,6 +1476,51 @@ async function eliminarImagen(imagen: ImagenProducto) {
 
   alert("Imagen eliminada definitivamente.");
 }
+
+  // =========================
+  // ELIMINAR IMAGEN DE VARIANTE
+  // =========================
+
+  async function eliminarImagenVariante(foto: ImagenVariante, variante: Variante) {
+    if (!editando || !foto.id || !variante.id) return;
+    if (!window.confirm("¿Querés eliminar esta foto definitivamente?")) return;
+
+    const { data: eliminada, error } = await supabase
+      .from("ProductoVarianteImagenes")
+      .delete()
+      .eq("id", foto.id)
+      .select("id, image_url")
+      .maybeSingle();
+
+    if (error) {
+      console.error("ERROR AL ELIMINAR FOTO DE VARIANTE:", error);
+      alert(`No se pudo eliminar la foto:\n\n${error.message}`);
+      return;
+    }
+    if (!eliminada) {
+      alert("Supabase no eliminó la foto. Revisá las políticas RLS de ProductoVarianteImagenes para permitir DELETE al usuario administrador.");
+      return;
+    }
+
+    const extraerRutaStorage = (url: string) => {
+      try {
+        const parsed = new URL(url);
+        const marker = "/storage/v1/object/public/PRODUCTOS/";
+        const index = parsed.pathname.indexOf(marker);
+        return index >= 0 ? decodeURIComponent(parsed.pathname.slice(index + marker.length)) : null;
+      } catch { return null; }
+    };
+    const rutaStorage = extraerRutaStorage(eliminada.image_url || foto.image_url);
+    if (rutaStorage) {
+      const { error: storageError } = await supabase.storage.from("PRODUCTOS").remove([rutaStorage]);
+      if (storageError) console.warn("La fila fue eliminada, pero no se pudo borrar el archivo de Storage:", storageError);
+    }
+
+    setImagenesVariantes((actuales) => ({
+      ...actuales,
+      [variante.id!]: (actuales[variante.id!] || []).filter((imagen) => imagen.id !== foto.id),
+    }));
+  }
 
   // =========================
   // ORDEN MANUAL DE PRODUCTOS
@@ -5013,110 +4959,94 @@ async function eliminarImagen(imagen: ImagenProducto) {
                           />
                         </div>
 
-                        {/* FOTO DEL TALLE/MODELO — DISPONIBLE CON O SIN COLOR */}
-                        <div
-                          style={{
-                            marginBottom: "15px",
-                            padding: "14px",
-                            border: "1px solid #ddd",
-                            borderRadius: "10px",
-                            background: "#fafafa",
-                          }}
-                        >
-                          <label
+                        {/* FOTO DEL TALLE/MODELO CUANDO NO TIENE COLOR */}
+                        {(coloresPorTalle[talle] || []).length === 0 && (
+                          <div
                             style={{
-                              ...labelStyle,
-                              fontSize: "13px",
-                              display: "block",
-                              marginBottom: "10px",
+                              marginBottom: "15px",
+                              padding: "12px",
+                              border: "1px solid #ddd",
+                              borderRadius: "10px",
+                              background: "#fafafa",
                             }}
                           >
-                            📷 Fotos generales de este talle/modelo
-                          </label>
+                            <label
+                              style={{
+                                ...labelStyle,
+                                fontSize: "13px",
+                                display: "block",
+                                marginBottom: "8px",
+                              }}
+                            >
+                              📷 Foto de este talle/modelo
+                            </label>
 
-                          <input
-                            id={`foto-talle-${talle}`}
-                            type="file"
-                            accept="image/jpeg,image/png,image/webp,image/gif"
-                            multiple
-                            style={{ display: "none" }}
-                            onChange={(e) => {
-                              const archivos = (Array.from(e.target.files || []) as File[]).filter((file) =>
-                                file.type.startsWith("image/")
-                              );
-
-                              if (archivos.length > 0) {
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp,image/gif"
+                              multiple
+                              onChange={(e) => {
+                                const archivos = (Array.from(e.target.files || []) as File[]).filter((file) =>
+                                  file.type.startsWith("image/")
+                                );
                                 seleccionarFotosColor(talle, "", archivos);
-                              }
+                                e.currentTarget.value = "";
+                              }}
+                              style={{
+                                ...inputStyle,
+                                width: "100%",
+                                boxSizing: "border-box",
+                                cursor: "pointer",
+                                background: "#fff",
+                              }}
+                            />
 
-                              e.currentTarget.value = "";
-                            }}
-                          />
-
-                          <label
-                            htmlFor={`foto-talle-${talle}`}
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              gap: "8px",
-                              padding: "10px 16px",
-                              borderRadius: "8px",
-                              background: "#263d2d",
-                              color: "white",
-                              cursor: "pointer",
-                              fontSize: "14px",
-                              fontWeight: 600,
-                            }}
-                          >
-                            📷 Elegir foto(s) del talle
-                          </label>
-
-                          {(fotosPorColor[clavePrecioNuevo(talle, "")] || []).length > 0 && (
-                            <div style={{ marginTop: "10px" }}>
-                              <p
-                                style={{
-                                  fontSize: "12px",
-                                  color: "#666",
-                                  margin: "0 0 8px",
-                                }}
-                              >
-                                {(fotosPorColor[clavePrecioNuevo(talle, "")] || []).length} foto(s) seleccionada(s) para <strong>{talle}</strong>.
-                              </p>
-                              <div
-                                style={{
-                                  display: "flex",
-                                  gap: "8px",
-                                  flexWrap: "wrap",
-                                }}
-                              >
-                                {(fotosPorColor[clavePrecioNuevo(talle, "")] || []).map((foto, indice) => (
-                                  <div
-                                    key={`${foto.name}-${indice}`}
-                                    style={{
-                                      width: "75px",
-                                      height: "75px",
-                                      borderRadius: "8px",
-                                      overflow: "hidden",
-                                      border: "1px solid #ddd",
-                                      background: "#fff",
-                                    }}
-                                  >
-                                    <img
-                                      src={URL.createObjectURL(foto)}
-                                      alt={`Foto ${talle} ${indice + 1}`}
+                            {(fotosPorColor[clavePrecioNuevo(talle, "")] || []).length > 0 && (
+                              <div style={{ marginTop: "10px" }}>
+                                <p
+                                  style={{
+                                    fontSize: "12px",
+                                    color: "#666",
+                                    margin: "0 0 8px",
+                                  }}
+                                >
+                                  {(fotosPorColor[clavePrecioNuevo(talle, "")] || []).length} foto(s) seleccionada(s) para <strong>{talle}</strong>.
+                                </p>
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    gap: "8px",
+                                    flexWrap: "wrap",
+                                  }}
+                                >
+                                  {(fotosPorColor[clavePrecioNuevo(talle, "")] || []).map((foto, indice) => (
+                                    <div
+                                      key={`${foto.name}-${indice}`}
                                       style={{
-                                        width: "100%",
-                                        height: "100%",
-                                        objectFit: "cover",
+                                        width: "75px",
+                                        height: "75px",
+                                        borderRadius: "8px",
+                                        overflow: "hidden",
+                                        border: "1px solid #ddd",
+                                        background: "#fff",
                                       }}
-                                    />
-                                  </div>
-                                ))}
+                                    >
+                                      <img
+                                        src={URL.createObjectURL(foto)}
+                                        alt={`Foto ${talle} ${indice + 1}`}
+                                        style={{
+                                          width: "100%",
+                                          height: "100%",
+                                          objectFit: "cover",
+                                        }}
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
-                            </div>
-                          )}
-                        </div>
+                            )}
+                          </div>
+                        )}
 
                         <div
                           style={{
@@ -5291,40 +5221,27 @@ async function eliminarImagen(imagen: ImagenProducto) {
                                   </label>
 
                                   <input
-                                    id={`foto-color-${talle}-${color}`}
                                     type="file"
-                                    accept="image/jpeg,image/png,image/webp,image/gif"
+                                    accept="image/*"
                                     multiple
-                                    onChange={(e) => {
-                                      const archivos = (Array.from(e.target.files || []) as File[]).filter((file) =>
-                                        file.type.startsWith("image/")
-                                      );
-                                      if (archivos.length > 0) {
-                                        seleccionarFotosColor(talle, color, archivos);
-                                      }
-                                      e.currentTarget.value = "";
-                                    }}
-                                    style={{ display: "none" }}
+                                    onChange={(
+                                      e
+                                    ) =>
+                                      seleccionarFotosColor(
+                                        talle,
+                                        color,
+                                        Array.from(
+                                          e
+                                            .target
+                                            .files ||
+                                            []
+                                        )
+                                      )
+                                    }
+                                    style={
+                                      inputStyle
+                                    }
                                   />
-
-                                  <label
-                                    htmlFor={`foto-color-${talle}-${color}`}
-                                    style={{
-                                      display: "inline-flex",
-                                      alignItems: "center",
-                                      justifyContent: "center",
-                                      gap: "8px",
-                                      padding: "10px 16px",
-                                      borderRadius: "8px",
-                                      background: "#e5eadf",
-                                      color: "#263d2d",
-                                      cursor: "pointer",
-                                      fontSize: "14px",
-                                      fontWeight: 600,
-                                    }}
-                                  >
-                                    📷 Elegir foto(s) de {color}
-                                  </label>
 
                                   {fotos.length >
                                     0 && (
@@ -5515,10 +5432,10 @@ onDragEnd={() => {
                           "hidden",
                       }}
                     >
-                      {producto.image ? (
+                      {(producto.image || portadasVariantes[producto.id]) ? (
                         <img
                           src={
-                            producto.image
+                            producto.image || portadasVariantes[producto.id]
                           }
                           alt={
                             producto.name
@@ -6497,82 +6414,18 @@ onDragEnd={() => {
                                     style={inputStyle}
                                   />
                                   {fotosSinColor.length > 0 && (
-                                    <div
-                                      style={{
-                                        marginTop: "12px",
-                                      }}
-                                    >
-                                      <label
-                                        style={{
-                                          ...labelStyle,
-                                          fontSize: "13px",
-                                        }}
-                                      >
-                                        Imágenes actuales de este talle/modelo
-                                      </label>
-
-                                      <div
-                                        style={{
-                                          display: "flex",
-                                          gap: "8px",
-                                          flexWrap: "wrap",
-                                          marginTop: "8px",
-                                        }}
-                                      >
-                                        {fotosSinColor.map((foto) => (
-                                          <div
-                                            key={foto.id}
-                                            style={{
-                                              width: "90px",
-                                              height: "90px",
-                                              position: "relative",
-                                            }}
-                                          >
-                                            <img
-                                              src={foto.image_url}
-                                              alt=""
-                                              style={{
-                                                width: "90px",
-                                                height: "90px",
-                                                objectFit: "cover",
-                                                borderRadius: "8px",
-                                                border: "1px solid #ddd",
-                                              }}
-                                            />
-
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                eliminarImagenVariante(
-                                                  foto,
-                                                  varianteSinColor
-                                                )
-                                              }
-                                              style={{
-                                                position: "absolute",
-                                                top: "4px",
-                                                right: "4px",
-                                                width: "24px",
-                                                height: "24px",
-                                                border: "none",
-                                                borderRadius: "50%",
-                                                background: "#fff",
-                                                color: "#a00",
-                                                cursor: "pointer",
-                                                fontWeight: 700,
-                                                boxShadow:
-                                                  "0 1px 4px rgba(0,0,0,0.2)",
-                                              }}
-                                              title="Eliminar imagen"
-                                            >
-                                              ×
-                                            </button>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )}
-
+                                     <div style={{ marginTop: "10px" }}>
+                                       <label style={{ ...labelStyle, fontSize: "13px" }}>Imágenes actuales de este talle/modelo</label>
+                                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "6px" }}>
+                                         {fotosSinColor.map((foto) => (
+                                           <div key={foto.id} style={{ position: "relative", width: "90px", height: "90px" }}>
+                                             <img src={foto.image_url} alt={`Foto ${varianteSinColor.talle}`} style={{ width: "90px", height: "90px", objectFit: "cover", borderRadius: "8px", border: "1px solid #ddd" }} />
+                                             <button type="button" onClick={() => eliminarImagenVariante(foto, varianteSinColor)} title="Eliminar esta foto" style={{ position: "absolute", top: "-7px", right: "-7px", width: "24px", height: "24px", borderRadius: "50%", border: "none", background: "#c94a4a", color: "#fff", cursor: "pointer", fontWeight: "700", lineHeight: "24px", padding: 0 }}>×</button>
+                                           </div>
+                                         ))}
+                                       </div>
+                                     </div>
+                                   )}
                                   {fotosNuevasSinColor.length > 0 && (
                                     <p style={{ fontSize: "12px", color: "#666" }}>
                                       {fotosNuevasSinColor.length} foto(s) nueva(s) seleccionada(s).
@@ -6766,55 +6619,28 @@ onDragEnd={() => {
                                         }}
                                       >
                                         {fotos.map(
-                                          (foto) => (
-                                            <div
-                                              key={foto.id}
+                                          (
+                                            foto
+                                          ) => (
+                                            <img
+                                              key={
+                                                foto.id
+                                              }
+                                              src={
+                                                foto.image_url
+                                              }
+                                              alt=""
                                               style={{
-                                                width: "90px",
-                                                height: "90px",
-                                                position: "relative",
+                                                width:
+                                                  "75px",
+                                                height:
+                                                  "75px",
+                                                objectFit:
+                                                  "cover",
+                                                borderRadius:
+                                                  "7px",
                                               }}
-                                            >
-                                              <img
-                                                src={foto.image_url}
-                                                alt=""
-                                                style={{
-                                                  width: "90px",
-                                                  height: "90px",
-                                                  objectFit: "cover",
-                                                  borderRadius: "7px",
-                                                  border: "1px solid #ddd",
-                                                }}
-                                              />
-
-                                              <button
-                                                type="button"
-                                                onClick={() =>
-                                                  eliminarImagenVariante(
-                                                    foto,
-                                                    variante
-                                                  )
-                                                }
-                                                style={{
-                                                  position: "absolute",
-                                                  top: "4px",
-                                                  right: "4px",
-                                                  width: "24px",
-                                                  height: "24px",
-                                                  border: "none",
-                                                  borderRadius: "50%",
-                                                  background: "#fff",
-                                                  color: "#a00",
-                                                  cursor: "pointer",
-                                                  fontWeight: 700,
-                                                  boxShadow:
-                                                    "0 1px 4px rgba(0,0,0,0.2)",
-                                                }}
-                                                title="Eliminar imagen"
-                                              >
-                                                ×
-                                              </button>
-                                            </div>
+                                            />
                                           )
                                         )}
                                       </div>

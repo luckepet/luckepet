@@ -56,10 +56,31 @@ type ItemCarrito = Producto & {
 }
 
 // =====================================================
-// WHATSAPP LUCKEPET
+// CONFIGURACIÓN LUCKEPET
 // =====================================================
 
 const WHATSAPP_NUMERO = '5492664015639'
+const MONEDA = '$'
+const COLOR_MENU_PRINCIPAL = '#35543e'
+const COLOR_MENU_OSCURO = '#263d2d'
+const COLOR_MENU_MEDIO = '#3e6048'
+const COLOR_MENU_CLARO = '#213428'
+const COLOR_MENU_ALTERNATIVO = '#4b7355'
+const COLOR_MENU_SECUNDARIO = '#3f6249'
+const COLOR_MENU_BOTON = '#5a8062'
+const COLOR_MENU_BOTON_HOVER = '#4b6f54'
+
+const GRADIENTE_MENU_PRINCIPAL = `linear-gradient(135deg, ${COLOR_MENU_PRINCIPAL} 0%, ${COLOR_MENU_OSCURO} 100%)`
+const GRADIENTE_MENU_ALTERNATIVO = `linear-gradient(135deg, ${COLOR_MENU_ALTERNATIVO} 0%, ${COLOR_MENU_SECUNDARIO} 100%)`
+const GRADIENTE_MENU_BOTON = `linear-gradient(135deg, ${COLOR_MENU_BOTON} 0%, ${COLOR_MENU_BOTON_HOVER} 100%)`
+const GRADIENTE_MENU_OSCURO = `linear-gradient(145deg, ${COLOR_MENU_PRINCIPAL} 0%, ${COLOR_MENU_OSCURO} 100%)`
+const GRADIENTE_MENU_HOVER = `linear-gradient(145deg, ${COLOR_MENU_MEDIO} 0%, ${COLOR_MENU_OSCURO} 100%)`
+const GRADIENTE_MENU_FONDO = `linear-gradient(180deg, ${COLOR_MENU_OSCURO} 0%, ${COLOR_MENU_CLARO} 100%)`
+
+const aplicarColoresTienda = () => {
+  // Los colores ya están definidos en App.css.
+}
+
 
 // =====================================================
 // ESTADÍSTICAS
@@ -123,25 +144,7 @@ const registrarEvento = async (
 
 function App() {
   const [productos, setProductos] =
-    useState<Producto[]>(() => {
-      try {
-        const guardados = localStorage.getItem('luckepet_productos_cache')
-        return guardados
-          ? (JSON.parse(guardados) as Producto[])
-          : []
-      } catch {
-        return []
-      }
-    })
-
-  const [productosCargados, setProductosCargados] =
-    useState(() => {
-      try {
-        return !!localStorage.getItem('luckepet_productos_cache')
-      } catch {
-        return false
-      }
-    })
+    useState<Producto[]>([])
 
   const [categorias, setCategorias] =
     useState<Categoria[]>([])
@@ -330,6 +333,14 @@ const [, setImagenesGenerales] =
   }, [])
 
   // =====================================================
+  // COLORES GLOBALES DE LA TIENDA
+  // =====================================================
+
+  useEffect(() => {
+    aplicarColoresTienda()
+  }, [])
+
+  // =====================================================
   // CARGAR FOTOS DE PORTADA
   // =====================================================
 
@@ -345,11 +356,11 @@ const [, setImagenesGenerales] =
 
   useEffect(() => {
     if (
-      !window.history.state?.luckepetBase
+      !window.history.state?.tiendaBase
     ) {
       window.history.replaceState(
         {
-          luckepetBase: true
+          tiendaBase: true
         },
         '',
         window.location.href
@@ -401,52 +412,32 @@ const [, setImagenesGenerales] =
   // =====================================================
 
 async function cargarProductos() {
-    try {
-      const {
-        data,
-        error
-      } = await supabase
-        .from('Productos')
-        .select('*')
-        .order('orden', {
-          ascending: true,
-          nullsFirst: false
-        })
-        .order('id', {
-          ascending: false
-        })
+  const {
+    data,
+    error
+  } = await supabase
+    .from('Productos')
+    .select('*')
+    .order('orden', {
+      ascending: true,
+      nullsFirst: false
+    })
+    .order('id', {
+      ascending: false
+    })
 
-      if (error) {
-        console.error(
-          'ERROR PRODUCTOS:',
-          error
-        )
-        return
-      }
-
-      const productosActualizados =
-        (data || []) as Producto[]
-
-      // Guardamos la última lista válida. En la próxima apertura
-      // se muestra inmediatamente mientras Supabase actualiza.
-      try {
-        localStorage.setItem(
-          'luckepet_productos_cache',
-          JSON.stringify(productosActualizados)
-        )
-      } catch {
-        // Si el navegador no permite guardar caché, no afecta la tienda.
-      }
-
-      setProductos(productosActualizados)
-      setProductosCargados(true)
-    } catch (error) {
-      console.error(
-        'ERROR CARGANDO PRODUCTOS:',
-        error
-      )
-    }
+  if (error) {
+    console.error(
+      'ERROR PRODUCTOS:',
+      error
+    )
+    return
   }
+
+  setProductos(
+    (data || []) as Producto[]
+  )
+}
 
   // =====================================================
   // SECCIONES
@@ -462,143 +453,62 @@ async function cargarProductos() {
   // FOTOS DE PORTADA
   // =====================================================
 
-async function cargarFotosPortada() {
-  const mapa: Record<number, string> = {}
-
-  // =====================================================
-  // 1. FOTOS GENERALES
-  // =====================================================
-
-  const {
-    data: fotosGenerales,
-    error: errorGenerales
-  } = await supabase
-    .from('ProductoImagenes')
-    .select('producto_id, image_url, orden')
-    .order('orden', {
-      ascending: true
-    })
-
-  if (errorGenerales) {
-    console.error(
-      'ERROR FOTOS PORTADA:',
-      errorGenerales
-    )
-  } else {
-    ;(fotosGenerales || []).forEach(
-      (imagen: Imagen) => {
-        if (
-          imagen.producto_id &&
-          imagen.image_url?.trim() &&
-          !mapa[imagen.producto_id]
-        ) {
-          mapa[imagen.producto_id] =
-            imagen.image_url.trim()
-        }
-      }
-    )
-  }
-
-  // =====================================================
-  // 2. IMAGEN PRINCIPAL DEL PRODUCTO
-  // =====================================================
-
-  productos.forEach(producto => {
-    if (
-      !mapa[producto.id] &&
-      producto.image?.trim()
-    ) {
-      mapa[producto.id] =
-        producto.image.trim()
-    }
-  })
-
-  // =====================================================
-  // 3. SI NO HAY FOTO GENERAL,
-  //    BUSCAR FOTO EN LAS VARIANTES
-  // =====================================================
-
-  const {
-    data: variantes,
-    error: errorVariantes
-  } = await supabase
-    .from('ProductoVariantes')
-    .select('id, producto_id')
-    .order('id', {
-      ascending: true
-    })
-
-  if (errorVariantes) {
-    console.error(
-      'ERROR VARIANTES PORTADA:',
-      errorVariantes
-    )
-  } else if (variantes?.length) {
-
-    const idsVariantes =
-      variantes.map(
-        variante => variante.id
-      )
+  async function cargarFotosPortada() {
+    const mapa: Record<
+      number,
+      string
+    > = {}
 
     const {
-      data: fotosVariantes,
-      error: errorFotosVariantes
+      data,
+      error
     } = await supabase
-      .from('ProductoVarianteImagenes')
+      .from('ProductoImagenes')
       .select(
-        'variante_id, image_url, orden'
-      )
-      .in(
-        'variante_id',
-        idsVariantes
+        'producto_id, image_url, orden'
       )
       .order('orden', {
         ascending: true
       })
 
-    if (errorFotosVariantes) {
+    if (error) {
       console.error(
-        'ERROR FOTOS DE VARIANTES PARA PORTADA:',
-        errorFotosVariantes
+        'ERROR FOTOS PORTADA:',
+        error
       )
     } else {
-
-      ;(fotosVariantes || []).forEach(
+      ;(data || []).forEach(
         (imagen: Imagen) => {
-
           if (
-            !imagen.variante_id ||
-            !imagen.image_url?.trim()
+            imagen.producto_id &&
+            imagen.image_url?.trim() &&
+            !mapa[
+              imagen.producto_id
+            ]
           ) {
-            return
+            mapa[
+              imagen.producto_id
+            ] =
+              imagen.image_url.trim()
           }
-
-          // Buscamos a qué producto pertenece
-          const variante =
-            variantes.find(
-              item =>
-                item.id ===
-                imagen.variante_id
-            )
-
-          if (
-            !variante ||
-            mapa[variante.producto_id]
-          ) {
-            return
-          }
-
-          // La primera foto de variante
-          // pasa a ser la portada.
-          mapa[variante.producto_id] =
-            imagen.image_url.trim()
         }
       )
     }
-  }
 
-  setImagenesPortada(mapa)
-}
+    productos.forEach(
+      producto => {
+        if (
+          !mapa[producto.id] &&
+          producto.image?.trim()
+        ) {
+          mapa[producto.id] =
+            producto.image.trim()
+        }
+      }
+    )
+
+    setImagenesPortada(mapa)
+  }
 
   // =====================================================
   // CARGAR FOTOS GENERALES
@@ -843,7 +753,7 @@ async function cargarFotosPortada() {
 
     window.history.pushState(
       {
-        luckepetProducto: true,
+        tiendaProducto: true,
         productoId: producto.id
       },
       '',
@@ -928,7 +838,7 @@ async function cargarFotosPortada() {
 
   const cerrarProducto = () => {
     if (
-      window.history.state?.luckepetProducto
+      window.history.state?.tiendaProducto
     ) {
       window.history.back()
       return
@@ -1115,16 +1025,24 @@ async function cargarFotosPortada() {
       if (
         variantes.length === 0
       ) {
-        return calcularPrecioFinal(productoSeleccionado.price, productoSeleccionado)
+        return calcularPrecioFinal(
+          productoSeleccionado.price,
+          productoSeleccionado
+        )
       }
 
+      // Si ya hay talle + color elegidos,
+      // usamos exactamente esa variante.
       const varianteExacta =
         obtenerVarianteSeleccionada()
 
       if (
         varianteExacta
       ) {
-        return calcularPrecioFinal(varianteExacta.precio, productoSeleccionado)
+        return calcularPrecioFinal(
+          varianteExacta.precio,
+          productoSeleccionado
+        )
       }
 
       if (
@@ -1137,33 +1055,58 @@ async function cargarFotosPortada() {
               talleSeleccionado
           )
 
-        if (
-          variantesDelTalle.length >
-          0
-        ) {
-          const precios =
-            variantesDelTalle
-              .map(
-                variante =>
-                  Number(
-                    variante.precio ||
-                      0
-                  )
-              )
-              .filter(
-                precio =>
-                  precio > 0
-              )
+        // Si el talle/modelo tiene una variante
+        // sin color, usamos SU precio específico.
+        // Esto permite, por ejemplo:
+        // Pollito = $10.000
+        // Ratoncito = $12.000
+        // sin necesidad de elegir color.
+        const varianteSinColor =
+          variantesDelTalle.find(
+            variante =>
+              !variante.color?.trim()
+          )
 
-          if (
-            precios.length > 0
-          ) {
-            return calcularPrecioFinal(Math.min(...precios), productoSeleccionado)
-          }
+        if (
+          varianteSinColor
+        ) {
+          return calcularPrecioFinal(
+            varianteSinColor.precio,
+            productoSeleccionado
+          )
+        }
+
+        // Si el talle tiene colores pero todavía
+        // no se eligió uno, mostramos el menor
+        // precio disponible para ese talle.
+        const precios =
+          variantesDelTalle
+            .map(
+              variante =>
+                Number(
+                  variante.precio ||
+                    0
+                )
+            )
+            .filter(
+              precio =>
+                precio > 0
+            )
+
+        if (
+          precios.length > 0
+        ) {
+          return calcularPrecioFinal(
+            Math.min(...precios),
+            productoSeleccionado
+          )
         }
       }
 
-      return calcularPrecioFinal(productoSeleccionado.price, productoSeleccionado)
+      return calcularPrecioFinal(
+        productoSeleccionado.price,
+        productoSeleccionado
+      )
     }
 
   // =====================================================
@@ -1648,11 +1591,11 @@ async function cargarFotosPortada() {
         )
 
       const mensajeWhatsApp =
-        `Hola LuckePet 👋\n` +
+        `${'LuckePet'} 👋\n` +
         `Ya realicé mi compra.\n\n` +
         `N.º de pedido: #${numeroPedido}\n` +
         `Nombre: ${nombreCompleto}\n` +
-        `Total: $${totalPedido}\n\n` +
+        `Total: ${MONEDA}${totalPedido}\n\n` +
         `Muchas gracias.`
 
       const urlWhatsApp =
@@ -1865,10 +1808,10 @@ async function cargarFotosPortada() {
                 alignItems: 'center',
                 gap: '4px',
                 background: nivel === 0
-                  ? 'linear-gradient(135deg, #35543e 0%, #263d2d 100%)'
+                  ? GRADIENTE_MENU_PRINCIPAL
                   : nivel === 1
-                    ? 'linear-gradient(135deg, #4b7355 0%, #3f6249 100%)'
-                    : 'linear-gradient(135deg, #5a8062 0%, #4b6f54 100%)',
+                    ? GRADIENTE_MENU_ALTERNATIVO
+                    : GRADIENTE_MENU_BOTON,
                 borderRadius: '13px',
                 overflow: 'hidden',
                 border: '1px solid rgba(255,255,255,.13)',
@@ -1894,7 +1837,7 @@ async function cargarFotosPortada() {
                   border: 0,
                   background: 'transparent',
                   padding: '13px 12px',
-                  paddingLeft: '12px',
+                  paddingLeft: `${12 + nivel * 12}px`,
                   fontWeight: nivel === 0 ? 750 : 550,
                   color: '#fff',
                   cursor: 'pointer',
@@ -1956,9 +1899,10 @@ async function cargarFotosPortada() {
             {tieneHijos && expandida && (
               <div
                 style={{
-                  marginTop: '8px',
-                  marginLeft: 0,
-                  paddingLeft: 0,
+                  marginTop: '6px',
+                  marginLeft: nivel === 0 ? '13px' : '9px',
+                  paddingLeft: '11px',
+                  borderLeft: '2px solid rgba(255,255,255,.16)',
                   animation: 'luckepetCategoryOpen .18s ease'
                 }}
               >
@@ -1972,23 +1916,23 @@ async function cargarFotosPortada() {
                     gap: '8px',
                     textAlign: 'left',
                     border: '1px solid rgba(255,255,255,.14)',
-                    background: 'linear-gradient(135deg, #4b7355 0%, #3f6249 100%)',
-                    padding: '13px 12px',
-                    borderRadius: '13px',
-                    fontWeight: 550,
+                    background: 'rgba(255,255,255,.11)',
+                    padding: '9px 11px',
+                    borderRadius: '9px',
+                    fontWeight: 700,
                     color: '#fff',
                     cursor: 'pointer',
-                    fontSize: '14px',
-                    marginBottom: '8px',
+                    fontSize: '12px',
+                    marginBottom: '6px',
                     boxSizing: 'border-box',
                     transition: 'background .18s ease, transform .18s ease'
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, #557f5f 0%, #476e50 100%)'
+                    e.currentTarget.style.background = 'rgba(255,255,255,.17)'
                     e.currentTarget.style.transform = 'translateX(2px)'
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, #4b7355 0%, #3f6249 100%)'
+                    e.currentTarget.style.background = 'rgba(255,255,255,.11)'
                     e.currentTarget.style.transform = 'translateX(0)'
                   }}
                 >
@@ -2028,20 +1972,6 @@ async function cargarFotosPortada() {
         }
       `}</style>
 
-      {/* CERRAR CATEGORÍAS AL TOCAR FUERA DEL PANEL */}
-      {menuCategoriasAbierto && (
-        <div
-          aria-hidden="true"
-          onClick={() => setMenuCategoriasAbierto(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 999,
-            background: 'transparent'
-          }}
-        />
-      )}
-
       {/* HAMBURGUESA DE CATEGORÍAS */}
       <div style={{ position: 'fixed', left: 0, top: '92px', zIndex: 1000 }}>
         <button
@@ -2055,7 +1985,7 @@ async function cargarFotosPortada() {
             border: '1px solid rgba(255,255,255,.18)',
             borderLeft: 'none',
             borderRadius: '0 16px 16px 0',
-            background: 'linear-gradient(145deg, #35543e 0%, #263d2d 100%)',
+            background: GRADIENTE_MENU_OSCURO,
             color: '#fff',
             boxShadow: '5px 6px 18px rgba(0,0,0,.20)',
             cursor: 'pointer',
@@ -2066,11 +1996,11 @@ async function cargarFotosPortada() {
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.width = '60px'
-            e.currentTarget.style.background = 'linear-gradient(145deg, #3e6048 0%, #263d2d 100%)'
+            e.currentTarget.style.background = GRADIENTE_MENU_HOVER
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.width = '56px'
-            e.currentTarget.style.background = 'linear-gradient(145deg, #35543e 0%, #263d2d 100%)'
+            e.currentTarget.style.background = GRADIENTE_MENU_OSCURO
           }}
         >
           <span
@@ -2098,7 +2028,7 @@ async function cargarFotosPortada() {
             overflowX: 'hidden',
             overscrollBehaviorY: 'contain',
             WebkitOverflowScrolling: 'touch',
-            background: 'linear-gradient(180deg, #263d2d 0%, #213428 100%)',
+            background: GRADIENTE_MENU_FONDO,
             border: '1px solid rgba(255,255,255,.13)',
             borderLeft: 'none',
             borderRadius: '0 18px 18px 0',
@@ -2111,7 +2041,7 @@ async function cargarFotosPortada() {
             boxSizing: 'border-box'
           }}
         >
-          <div style={{ position: 'sticky', top: 0, zIndex: 2, background: 'linear-gradient(180deg, #263d2d 80%, rgba(38,61,45,0) 100%)', paddingBottom: '11px' }}>
+          <div style={{ position: 'sticky', top: 0, zIndex: 2, background: `linear-gradient(180deg, ${COLOR_MENU_OSCURO} 80%, rgba(38,61,45,0) 100%)`, paddingBottom: '11px' }}>
             <button
               type="button"
               onClick={() => seleccionarCategoria('Todos')}
@@ -2126,7 +2056,7 @@ async function cargarFotosPortada() {
                 padding: '11px 12px',
                 borderRadius: '11px',
                 fontWeight: 800,
-                color: '#263d2d',
+                color: COLOR_MENU_OSCURO,
                 cursor: 'pointer',
                 boxShadow: '0 3px 10px rgba(0,0,0,.14)',
                 transition: 'transform .18s ease, box-shadow .18s ease'
@@ -2141,12 +2071,12 @@ async function cargarFotosPortada() {
               }}
             >
               <span aria-hidden="true">⌂</span>
-              <span>Todos los productos</span>
+              <span>{'Todos los productos'}</span>
             </button>
           </div>
 
           {categorias.length > 0 ? renderMenuCategorias(null) : (
-            <div style={{ color: '#fff', padding: '14px 8px', fontSize: '13px' }}>No hay categorías disponibles.</div>
+            <div style={{ color: '#fff', padding: '14px 8px', fontSize: '13px' }}>{'No hay categorías disponibles.'}</div>
           )}
         </div>
       </div>
@@ -2176,7 +2106,7 @@ async function cargarFotosPortada() {
 
           {carrito.length === 0 ? (
             <p>
-              Tu carrito está vacío
+              {'Tu carrito está vacío.'}
             </p>
           ) : (
             <>
@@ -2225,7 +2155,7 @@ async function cargarFotosPortada() {
                       )}
 
                       <p>
-                        $
+                        {MONEDA}
                         {Number(
                           producto.price
                         ).toLocaleString(
@@ -2289,7 +2219,7 @@ async function cargarFotosPortada() {
                   </span>
 
                   <strong>
-                    $
+                    {MONEDA}
                     {totalCarrito.toLocaleString(
                       'es-AR'
                     )}
@@ -2341,7 +2271,7 @@ async function cargarFotosPortada() {
               </button>
 
               <span>
-                Finalizar compra
+                {'Finalizar compra'}
               </span>
 
               <button
@@ -2365,17 +2295,16 @@ async function cargarFotosPortada() {
                 }
               >
                 <h1>
-                  Datos de entrega
+                  {'Datos de entrega'}
                 </h1>
 
                 <p className="checkout-subtitulo">
-                  Completá tus datos para
-                  enviar el pedido.
+                  {'Completá tus datos para enviar el pedido.'}
                 </p>
 
                 <div className="checkout-resumen">
                   <strong>
-                    Resumen del pedido
+                    {'Resumen del pedido'}
                   </strong>
 
                   {carrito.map(
@@ -2401,7 +2330,7 @@ async function cargarFotosPortada() {
                         </span>
 
                         <strong>
-                          $
+                          {MONEDA}
                           {(
                             Number(
                               producto.price ||
@@ -2423,7 +2352,7 @@ async function cargarFotosPortada() {
                     </span>
 
                     <strong>
-                      $
+                      {MONEDA}
                       {totalCarrito.toLocaleString(
                         'es-AR'
                       )}
@@ -2637,7 +2566,7 @@ async function cargarFotosPortada() {
                       )
                     }
                   >
-                    Continuar por WhatsApp
+                    {'Continuar por WhatsApp'}
                   </button>
                 )}
 
@@ -2648,7 +2577,7 @@ async function cargarFotosPortada() {
                     cerrarCheckout
                   }
                 >
-                  Seguir comprando
+                  {'Seguir comprando'}
                 </button>
               </div>
             )}
@@ -2662,16 +2591,14 @@ async function cargarFotosPortada() {
 
       <section className="productos">
         <div className="tarjetas">
-          {!productosCargados ? null : productosFiltrados.length === 0 ? (
+          {productosFiltrados.length === 0 ? (
             <div className="sin-productos">
               <h3>
-                🐾 No encontramos
-                productos
+                🐾 {'No encontramos productos'}
               </h3>
 
               <p>
-                Probá buscando otro
-                producto.
+                {'Probá buscando otro producto.'}
               </p>
             </div>
           ) : (
@@ -2760,7 +2687,7 @@ async function cargarFotosPortada() {
                                   '1px'
                               }}
                             >
-                              SIN STOCK
+                              {'SIN STOCK'}
                             </div>
                           )}
                         </div>
@@ -2777,7 +2704,7 @@ async function cargarFotosPortada() {
                               'center'
                           }}
                         >
-                          Sin imagen
+                          {'Sin imagen'}
                         </div>
                       )}
                     </div>
@@ -2790,9 +2717,9 @@ async function cargarFotosPortada() {
                       </h3>
 
                       <div className="precio-carrito">
-                        {Number(producto.descuento_porcentaje || 0) > 0 && <span style={{ textDecoration: 'line-through', color: '#888', fontSize: '13px', marginRight: '6px' }}>${Number(producto.price || 0).toLocaleString('es-AR')}</span>}
+                        {Number(producto.descuento_porcentaje || 0) > 0 && <span style={{ textDecoration: 'line-through', color: '#888', fontSize: '13px', marginRight: '6px' }}>{MONEDA}{Number(producto.price || 0).toLocaleString('es-AR')}</span>}
                         <strong className="precio">
-                          $
+                          {MONEDA}
                           {calcularPrecioFinal(producto.price, producto).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                         </strong>
 
@@ -3020,7 +2947,7 @@ async function cargarFotosPortada() {
                   />
                 ) : (
                   <div className="producto-sin-imagen">
-                    Sin imagen
+                    {'Sin imagen'}
                   </div>
                 )}
 
@@ -3118,8 +3045,8 @@ async function cargarFotosPortada() {
                 </h1>
 
                 <div className="producto-precio">
-                  {Number(productoSeleccionado.descuento_porcentaje || 0) > 0 && !talleSeleccionado && <span style={{ textDecoration: 'line-through', color: '#888', fontSize: '14px', marginRight: '8px' }}>${Number(productoSeleccionado.price || 0).toLocaleString('es-AR')}</span>}
-                  ${obtenerPrecioActual().toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                  {Number(productoSeleccionado.descuento_porcentaje || 0) > 0 && !talleSeleccionado && <span style={{ textDecoration: 'line-through', color: '#888', fontSize: '14px', marginRight: '8px' }}>{MONEDA}{Number(productoSeleccionado.price || 0).toLocaleString('es-AR')}</span>}
+                  {MONEDA}{obtenerPrecioActual().toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                   {Number(productoSeleccionado.descuento_porcentaje || 0) > 0 && <span style={{ marginLeft: '8px', fontSize: '13px', color: '#7b2d2d' }}>-{Number(productoSeleccionado.descuento_porcentaje)}%</span>}
                 </div>
 
@@ -3236,20 +3163,6 @@ async function cargarFotosPortada() {
                       </div>
                     </div>
                   )}
-
-                {/* STOCK */}
-
-                <div className="producto-stock">
-                  <span className="stock-punto"></span>
-
-                  {stockDisponible(
-                    productoSeleccionado
-                  ) > 0
-                    ? `Stock disponible: ${stockDisponible(
-                        productoSeleccionado
-                      )}`
-                    : 'Sin stock'}
-                </div>
               </div>
 
               {/* BOTÓN CARRITO */}
@@ -3352,7 +3265,7 @@ async function cargarFotosPortada() {
                     productoSeleccionado
                   ) > 0
                     ? 'Agregar al carrito'
-                    : 'Sin stock'}
+                    : 'SIN STOCK'}
                 </button>
               </div>
             </div>
