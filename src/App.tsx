@@ -454,58 +454,86 @@ async function cargarProductos() {
   // =====================================================
 
   async function cargarFotosPortada() {
-    const mapa: Record<
-      number,
-      string
-    > = {}
+    const mapa: Record<number, string> = {}
 
+    // 1. Fotos generales del producto.
     const {
-      data,
-      error
+      data: imagenesGenerales,
+      error: errorGenerales
     } = await supabase
       .from('ProductoImagenes')
-      .select(
-        'producto_id, image_url, orden'
-      )
-      .order('orden', {
-        ascending: true
-      })
+      .select('producto_id, image_url, orden')
+      .order('orden', { ascending: true })
 
-    if (error) {
-      console.error(
-        'ERROR FOTOS PORTADA:',
-        error
-      )
+    if (errorGenerales) {
+      console.error('ERROR FOTOS PORTADA:', errorGenerales)
     } else {
-      ;(data || []).forEach(
-        (imagen: Imagen) => {
-          if (
-            imagen.producto_id &&
-            imagen.image_url?.trim() &&
-            !mapa[
-              imagen.producto_id
-            ]
-          ) {
-            mapa[
-              imagen.producto_id
-            ] =
-              imagen.image_url.trim()
-          }
+      ;(imagenesGenerales || []).forEach((imagen: Imagen) => {
+        if (
+          imagen.producto_id &&
+          imagen.image_url?.trim() &&
+          !mapa[imagen.producto_id]
+        ) {
+          mapa[imagen.producto_id] = imagen.image_url.trim()
         }
-      )
+      })
     }
 
-    productos.forEach(
-      producto => {
-        if (
-          !mapa[producto.id] &&
-          producto.image?.trim()
-        ) {
-          mapa[producto.id] =
-            producto.image.trim()
-        }
+    // 2. Si un producto tiene talle/modelo y sus fotos están guardadas
+    //    en ProductoVarianteImagenes, usamos la primera foto de cualquiera
+    //    de sus variantes como portada. Esto evita mostrar "Sin imagen".
+    const { data: variantes, error: errorVariantes } = await supabase
+      .from('ProductoVariantes')
+      .select('id, producto_id')
+      .order('id', { ascending: true })
+
+    if (errorVariantes) {
+      console.error('ERROR VARIANTES PARA PORTADAS:', errorVariantes)
+    } else if (variantes && variantes.length > 0) {
+      const ids = variantes
+        .map((variante) => Number(variante.id))
+        .filter((id) => Number.isFinite(id))
+
+      const { data: imagenesVariantesPortada, error: errorImagenesVariantes } =
+        await supabase
+          .from('ProductoVarianteImagenes')
+          .select('variante_id, image_url, orden')
+          .in('variante_id', ids)
+          .order('orden', { ascending: true })
+
+      if (errorImagenesVariantes) {
+        console.error(
+          'ERROR FOTOS DE VARIANTES PARA PORTADAS:',
+          errorImagenesVariantes
+        )
+      } else {
+        const productoPorVariante: Record<number, number> = {}
+
+        variantes.forEach((variante) => {
+          const varianteId = Number(variante.id)
+          const productoId = Number(variante.producto_id)
+          if (Number.isFinite(varianteId) && Number.isFinite(productoId)) {
+            productoPorVariante[varianteId] = productoId
+          }
+        })
+
+        ;(imagenesVariantesPortada || []).forEach((imagen) => {
+          const productoId = productoPorVariante[Number(imagen.variante_id)]
+          const url = imagen.image_url?.trim()
+
+          if (productoId && url && !mapa[productoId]) {
+            mapa[productoId] = url
+          }
+        })
       }
-    )
+    }
+
+    // 3. Último respaldo: columna Productos.image.
+    productos.forEach((producto) => {
+      if (!mapa[producto.id] && producto.image?.trim()) {
+        mapa[producto.id] = producto.image.trim()
+      }
+    })
 
     setImagenesPortada(mapa)
   }
