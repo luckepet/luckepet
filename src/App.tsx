@@ -417,7 +417,7 @@ async function cargarProductos() {
     error
   } = await supabase
     .from('Productos')
-    .select('*')
+    .select('id, name, orden, description, price, descuento_porcentaje, image, category, stock, stock_reservado, tiene_talle, talles')
     .order('orden', {
       ascending: true,
       nullsFirst: false
@@ -820,26 +820,18 @@ async function cargarProductos() {
 
     try {
       // -----------------------------------------------
-      // 1. CARGAR FOTOS GENERALES
+      // CARGAR FOTOS GENERALES Y VARIANTES EN PARALELO
       // -----------------------------------------------
+      // Antes se esperaba primero a las fotos generales y
+      // recién después se pedían las variantes. Ahora ambas
+      // consultas salen al mismo tiempo para abrir el producto
+      // bastante más rápido.
+      const [fotosGenerales, resultado] = await Promise.all([
+        cargarImagenesGenerales(producto),
+        cargarVariantes(producto.id)
+      ])
 
-      const fotosGenerales =
-        await cargarImagenesGenerales(
-          producto
-        )
-
-      setImagenesGenerales(
-        fotosGenerales
-      )
-
-      // -----------------------------------------------
-      // 2. CARGAR VARIANTES Y SUS FOTOS
-      // -----------------------------------------------
-
-      const resultado =
-        await cargarVariantes(
-          producto.id
-        )
+      setImagenesGenerales(fotosGenerales)
 
       // -----------------------------------------------
       // 3. ARMAR GALERÍA COMPLETA
@@ -1400,7 +1392,7 @@ async function cargarProductos() {
         error: errorStock
       } = await supabase
         .from('Productos')
-        .select('*')
+        .select('id, name, orden, description, price, descuento_porcentaje, image, category, stock, stock_reservado, tiene_talle, talles')
         .in(
           'id',
           carrito.map(
@@ -2132,6 +2124,8 @@ async function cargarProductos() {
                     key={`${producto.id}-${producto.talle || 'sin-talle'}-${producto.color || 'sin-color'}-${producto.variante_id || 'sin-variante'}`}
                   >
                     <img
+                      loading="lazy"
+                      decoding="async"
                       src={
                         producto.image ||
                         imagenesPortada[
@@ -2839,6 +2833,8 @@ async function cargarProductos() {
                 )}
 
                 <img
+                  loading="eager"
+                  decoding="async"
                   src={
                     imagenesProducto[
                       fotoActual
@@ -2927,6 +2923,8 @@ async function cargarProductos() {
                 ) : imagenesProducto.length >
                   0 ? (
                   <img
+                    loading="eager"
+                    decoding="async"
                     src={
                       imagenesProducto[
                         fotoActual
