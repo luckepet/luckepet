@@ -1042,13 +1042,45 @@ async function cargarProductos() {
   // PRECIO ACTUAL
   // =====================================================
 
-  const obtenerPrecioActual =
-    () => {
-      if (
-        !productoSeleccionado
-      ) {
-        return 0
+const obtenerPrecioActual = () => {
+  if (!productoSeleccionado) {
+    return 0
+  }
+
+  // Si no hay variantes, usamos el precio general.
+  if (variantes.length === 0) {
+    return calcularPrecioFinal(
+      productoSeleccionado.price,
+      productoSeleccionado
+    )
+  }
+
+  // Si hay talle seleccionado, buscamos SIEMPRE
+  // la variante correspondiente a ese talle.
+  if (talleSeleccionado) {
+    const talleBuscado = talleSeleccionado.trim()
+
+    const variantesDelTalle = variantes.filter(
+      variante =>
+        variante.talle?.trim() === talleBuscado
+    )
+
+    // Si además hay color, usamos talle + color.
+    if (colorSeleccionado) {
+      const colorBuscado = colorSeleccionado.trim()
+
+      const varianteConColor = variantesDelTalle.find(
+        variante =>
+          variante.color?.trim() === colorBuscado
+      )
+
+      if (varianteConColor) {
+        return calcularPrecioFinal(
+          Number(varianteConColor.precio || 0),
+          productoSeleccionado
+        )
       }
+<<<<<<< HEAD
 
       if (
         variantes.length === 0
@@ -1135,7 +1167,45 @@ async function cargarProductos() {
         productoSeleccionado.price,
         productoSeleccionado
       )
+=======
+>>>>>>> 0c0e1d7 (Corregir precio por talle)
     }
+
+    // Si el talle no necesita color, usamos su precio.
+    const varianteSinColor = variantesDelTalle.find(
+      variante =>
+        !variante.color?.trim()
+    )
+
+    if (varianteSinColor) {
+      return calcularPrecioFinal(
+        Number(varianteSinColor.precio || 0),
+        productoSeleccionado
+      )
+    }
+
+    // Si tiene colores pero todavía no se eligió uno,
+    // usamos el precio más bajo de ese talle.
+    const precios = variantesDelTalle
+      .map(variante =>
+        Number(variante.precio || 0)
+      )
+      .filter(precio => precio > 0)
+
+    if (precios.length > 0) {
+      return calcularPrecioFinal(
+        Math.min(...precios),
+        productoSeleccionado
+      )
+    }
+  }
+
+  // Sin talle seleccionado: precio general.
+  return calcularPrecioFinal(
+    productoSeleccionado.price,
+    productoSeleccionado
+  )
+}
 
   // =====================================================
   // CARRITO
