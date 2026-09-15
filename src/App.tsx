@@ -356,18 +356,15 @@ const [, setImagenesGenerales] =
 
   useEffect(() => {
     if (!window.history.state?.luckepetBase) {
-      const urlBase = window.location.href.split('#')[0]
-      const estadoBase = {
-        ...(window.history.state || {}),
-        luckepetBase: true,
-        luckepetListado: true
-      }
-
-      // Dejamos una entrada propia del listado antes de los detalles.
-      // Esto es importante cuando la tienda se abre desde Instagram:
-      // el primer Atrás vuelve al listado de LuckePet en lugar de salir.
-      window.history.replaceState(estadoBase, '', urlBase)
-      window.history.pushState(estadoBase, '', urlBase)
+      const urlSinHash = window.location.href.split('#')[0]
+      window.history.replaceState(
+        {
+          ...(window.history.state || {}),
+          luckepetBase: true
+        },
+        '',
+        urlSinHash
+      )
     }
 
     const manejarAtras = () => {
@@ -496,6 +493,46 @@ async function cargarProductos() {
           }
         }
       )
+    }
+
+    // Algunos productos pueden tener sus fotos solamente en las variantes.
+    // Usamos la primera imagen de variante como portada de ese producto.
+    const idsProductosSinImagen = productos
+      .filter(producto => !mapa[producto.id] && !producto.image?.trim())
+      .map(producto => producto.id)
+
+    if (idsProductosSinImagen.length > 0) {
+      const { data: variantesConImagenes, error: errorVariantes } = await supabase
+        .from('ProductoVariantes')
+        .select('id, producto_id')
+        .in('producto_id', idsProductosSinImagen)
+
+      if (errorVariantes) {
+        console.error('ERROR VARIANTES PARA PORTADA:', errorVariantes)
+      } else if (variantesConImagenes?.length) {
+        const idsVariantes = variantesConImagenes.map((variante: any) => variante.id)
+        const { data: imagenesVariantesPortada, error: errorImagenesVariantes } = await supabase
+          .from('ProductoVarianteImagenes')
+          .select('variante_id, image_url, orden')
+          .in('variante_id', idsVariantes)
+          .order('orden', { ascending: true })
+
+        if (errorImagenesVariantes) {
+          console.error('ERROR IMAGENES VARIANTES PARA PORTADA:', errorImagenesVariantes)
+        } else {
+          const productoPorVariante: Record<number, number> = {}
+          ;(variantesConImagenes || []).forEach((variante: any) => {
+            productoPorVariante[variante.id] = variante.producto_id
+          })
+
+          ;(imagenesVariantesPortada || []).forEach((imagen: any) => {
+            const productoId = productoPorVariante[imagen.variante_id]
+            if (productoId && imagen.image_url?.trim() && !mapa[productoId]) {
+              mapa[productoId] = imagen.image_url.trim()
+            }
+          })
+        }
+      }
     }
 
     productos.forEach(
@@ -1763,15 +1800,9 @@ async function cargarProductos() {
     setMenuCategoriasAbierto(false)
 
     // Cada categoría empieza siempre desde arriba.
-    const irArriba = () => {
-      window.scrollTo(0, 0)
-      document.documentElement.scrollTop = 0
-      document.body.scrollTop = 0
-    }
-
-    irArriba()
-    window.requestAnimationFrame(irArriba)
-    window.setTimeout(irArriba, 50)
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: 'auto' })
+    })
   }
 
   function renderMenuCategorias(padreId: number | null, nivel = 0): any {
