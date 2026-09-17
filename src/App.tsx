@@ -154,6 +154,9 @@ function App() {
   const [productos, setProductos] =
     useState<Producto[]>([])
 
+  const [cargandoProductos, setCargandoProductos] =
+    useState(true)
+
   const [categorias, setCategorias] =
     useState<Categoria[]>([])
 
@@ -412,31 +415,35 @@ const [, setImagenesGenerales] =
   // =====================================================
 
 async function cargarProductos() {
-  const {
-    data,
-    error
-  } = await supabase
-    .from('Productos')
-    .select('id, name, orden, description, price, descuento_porcentaje, image, category, stock, stock_reservado, tiene_talle, talles')
-    .order('orden', {
-      ascending: true,
-      nullsFirst: false
-    })
-    .order('id', {
-      ascending: false
-    })
-
-  if (error) {
-    console.error(
-      'ERROR PRODUCTOS:',
+  try {
+    const {
+      data,
       error
-    )
-    return
-  }
+    } = await supabase
+      .from('Productos')
+      .select('*')
+      .order('orden', {
+        ascending: true,
+        nullsFirst: false
+      })
+      .order('id', {
+        ascending: false
+      })
 
-  setProductos(
-    (data || []) as Producto[]
-  )
+    if (error) {
+      console.error(
+        'ERROR PRODUCTOS:',
+        error
+      )
+      return
+    }
+
+    setProductos(
+      (data || []) as Producto[]
+    )
+  } finally {
+    setCargandoProductos(false)
+  }
 }
 
   // =====================================================
@@ -493,46 +500,6 @@ async function cargarProductos() {
           }
         }
       )
-    }
-
-    // Algunos productos pueden tener sus fotos solamente en las variantes.
-    // Usamos la primera imagen de variante como portada de ese producto.
-    const idsProductosSinImagen = productos
-      .filter(producto => !mapa[producto.id] && !producto.image?.trim())
-      .map(producto => producto.id)
-
-    if (idsProductosSinImagen.length > 0) {
-      const { data: variantesConImagenes, error: errorVariantes } = await supabase
-        .from('ProductoVariantes')
-        .select('id, producto_id')
-        .in('producto_id', idsProductosSinImagen)
-
-      if (errorVariantes) {
-        console.error('ERROR VARIANTES PARA PORTADA:', errorVariantes)
-      } else if (variantesConImagenes?.length) {
-        const idsVariantes = variantesConImagenes.map((variante: any) => variante.id)
-        const { data: imagenesVariantesPortada, error: errorImagenesVariantes } = await supabase
-          .from('ProductoVarianteImagenes')
-          .select('variante_id, image_url, orden')
-          .in('variante_id', idsVariantes)
-          .order('orden', { ascending: true })
-
-        if (errorImagenesVariantes) {
-          console.error('ERROR IMAGENES VARIANTES PARA PORTADA:', errorImagenesVariantes)
-        } else {
-          const productoPorVariante: Record<number, number> = {}
-          ;(variantesConImagenes || []).forEach((variante: any) => {
-            productoPorVariante[variante.id] = variante.producto_id
-          })
-
-          ;(imagenesVariantesPortada || []).forEach((imagen: any) => {
-            const productoId = productoPorVariante[imagen.variante_id]
-            if (productoId && imagen.image_url?.trim() && !mapa[productoId]) {
-              mapa[productoId] = imagen.image_url.trim()
-            }
-          })
-        }
-      }
     }
 
     productos.forEach(
@@ -820,18 +787,26 @@ async function cargarProductos() {
 
     try {
       // -----------------------------------------------
-      // CARGAR FOTOS GENERALES Y VARIANTES EN PARALELO
+      // 1. CARGAR FOTOS GENERALES
       // -----------------------------------------------
-      // Antes se esperaba primero a las fotos generales y
-      // recién después se pedían las variantes. Ahora ambas
-      // consultas salen al mismo tiempo para abrir el producto
-      // bastante más rápido.
-      const [fotosGenerales, resultado] = await Promise.all([
-        cargarImagenesGenerales(producto),
-        cargarVariantes(producto.id)
-      ])
 
-      setImagenesGenerales(fotosGenerales)
+      const fotosGenerales =
+        await cargarImagenesGenerales(
+          producto
+        )
+
+      setImagenesGenerales(
+        fotosGenerales
+      )
+
+      // -----------------------------------------------
+      // 2. CARGAR VARIANTES Y SUS FOTOS
+      // -----------------------------------------------
+
+      const resultado =
+        await cargarVariantes(
+          producto.id
+        )
 
       // -----------------------------------------------
       // 3. ARMAR GALERÍA COMPLETA
@@ -1392,7 +1367,7 @@ async function cargarProductos() {
         error: errorStock
       } = await supabase
         .from('Productos')
-        .select('id, name, orden, description, price, descuento_porcentaje, image, category, stock, stock_reservado, tiene_talle, talles')
+        .select('*')
         .in(
           'id',
           carrito.map(
@@ -2124,8 +2099,6 @@ async function cargarProductos() {
                     key={`${producto.id}-${producto.talle || 'sin-talle'}-${producto.color || 'sin-color'}-${producto.variante_id || 'sin-variante'}`}
                   >
                     <img
-                      loading="lazy"
-                      decoding="async"
                       src={
                         producto.image ||
                         imagenesPortada[
@@ -2601,7 +2574,7 @@ async function cargarProductos() {
 
       <section className="productos">
         <div className="tarjetas">
-          {productosFiltrados.length === 0 ? (
+          {cargandoProductos ? null : productosFiltrados.length === 0 ? (
             <div className="sin-productos">
               <h3>
                 🐾 No encontramos
@@ -2833,8 +2806,6 @@ async function cargarProductos() {
                 )}
 
                 <img
-                  loading="eager"
-                  decoding="async"
                   src={
                     imagenesProducto[
                       fotoActual
@@ -2923,8 +2894,6 @@ async function cargarProductos() {
                 ) : imagenesProducto.length >
                   0 ? (
                   <img
-                    loading="eager"
-                    decoding="async"
                     src={
                       imagenesProducto[
                         fotoActual
