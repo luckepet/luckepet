@@ -2587,102 +2587,122 @@ async function cargarFotosPortada() {
                     : 'Enviar pedido'}
                 </button>
               </form>
-            ) : (
-              <div className="checkout-exito">
-             <div className="checkout-exito-icono">
-  ✓
-</div>
+          ) : (
+  <div className="checkout-exito">
+    <div className="checkout-exito-icono">
+      ✓
+    </div>
 
-<h1>
-  ¡Gracias por tu compra!
-</h1>
+    <h1>
+      ¡Pedido recibido!
+    </h1>
 
-<p>
-  Recibimos tu pedido correctamente.
-</p>
+    <p>
+      Recibimos tu pedido correctamente.
+    </p>
 
-<p>
-  Tu pedido quedó pendiente de confirmación.
-</p>
+    <p>
+      Tu pedido quedó pendiente de confirmación.
+    </p>
 
-<div
-  style={{
-    marginTop: '24px',
-    padding: '20px',
-    borderRadius: '12px',
-    background: '#f5f5f5',
-    textAlign: 'left'
-  }}
->
-  <h3
-    style={{
-      marginTop: 0,
-      marginBottom: '16px'
-    }}
-  >
-    Datos para realizar la transferencia
-  </h3>
+    <div
+      style={{
+        marginTop: '24px',
+        padding: '20px',
+        borderRadius: '12px',
+        background: '#f5f5f5',
+        textAlign: 'left'
+      }}
+    >
+      <h3
+        style={{
+          marginTop: 0,
+          marginBottom: '16px'
+        }}
+      >
+        Datos para realizar la transferencia
+      </h3>
 
-  <p>
-    <strong>Medio de pago:</strong>{' '}
-    Mercado Pago
-  </p>
+      <p>
+        <strong>Medio de pago:</strong>{' '}
+        Mercado Pago
+      </p>
 
-  <p>
-    <strong>Alias:</strong>{' '}
-    LUCKEPET
-  </p>
+      <p>
+        <strong>Alias:</strong>{' '}
+        LUCKEPET
+      </p>
 
-  <p>
-    <strong>CVU:</strong>{' '}
-    0000003100028774219628
-  </p>
+      <p>
+        <strong>CVU:</strong>{' '}
+        0000003100028774219628
+      </p>
 
-  <p>
-    <strong>Titular:</strong>{' '}
-    Carla Puig
-  </p>
+      <p>
+        <strong>Titular:</strong>{' '}
+        Carla Puig
+      </p>
 
-  <p
-    style={{
-      marginBottom: 0,
-      fontSize: '20px'
-    }}
-  >
-    <strong>Total a transferir:</strong>{' '}
-    ${totalPedidoCreado.toLocaleString('es-AR')}
-  </p>
-</div>
+      <p
+        style={{
+          marginBottom: 0,
+          fontSize: '20px'
+        }}
+      >
+        <strong>Total a transferir:</strong>{' '}
+        ${totalPedidoCreado.toLocaleString('es-AR')}
+      </p>
+    </div>
 
-{emailEnviado ? (
-  <p>
-    Te enviamos un email con todos los
-    detalles de tu compra.
-  </p>
-) : (
-  <p>
-    Podés continuar la coordinación de tu
-    compra por WhatsApp.
-  </p>
+    {emailEnviado ? (
+      <p>
+        Te enviamos un email con todos los
+        detalles de tu compra.
+      </p>
+    ) : (
+      <p>
+        Podés continuar la coordinación de tu
+        compra por WhatsApp.
+      </p>
+    )}
+
+    <p>
+      ¿Ya realizaste la transferencia?
+      Avisanos por WhatsApp para que podamos
+      verificar tu pago.
+    </p>
+
+    <button
+      type="button"
+      className="producto-boton-carrito"
+      onClick={() => {
+        if (urlWhatsAppPedido) {
+          window.open(
+            urlWhatsAppPedido,
+            '_blank',
+            'noopener,noreferrer'
+          )
+        }
+      }}
+      style={{
+        marginTop: '8px',
+        background: '#25D366',
+        color: '#fff',
+        width: '100%'
+      }}
+    >
+      Ir a WhatsApp
+    </button>
+
+    <button
+      type="button"
+      className="producto-boton-carrito"
+      onClick={cerrarCheckout}
+    >
+      Seguir comprando
+    </button>
+  </div>
 )}
-
-<p>
-  ¿Ya realizaste la transferencia?
-  Avisanos por WhatsApp para que podamos
-  verificar tu pago.
-</p>
-
-                <button
-                  type="button"
-                  className="producto-boton-carrito"
-                  onClick={
-                    cerrarCheckout
-                  }
-                >
-                  Seguir comprando
-                </button>
-              </div>
-            )}
           </div>
         </div>
       )}
