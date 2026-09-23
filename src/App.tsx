@@ -232,6 +232,8 @@ const [, setImagenesGenerales] =
   const [emailEnviado, setEmailEnviado] =
     useState(false)
 
+    const [totalPedidoCreado, setTotalPedidoCreado] = useState(0)
+
   const [errorPedido, setErrorPedido] =
     useState('')
 
@@ -460,62 +462,150 @@ async function cargarProductos() {
   // FOTOS DE PORTADA
   // =====================================================
 
-  async function cargarFotosPortada() {
-    const mapa: Record<
-      number,
-      string
-    > = {}
+async function cargarFotosPortada() {
+  const mapa: Record<number, string> = {}
 
-    const {
-      data,
-      error
-    } = await supabase
-      .from('ProductoImagenes')
-      .select(
-        'producto_id, image_url, orden'
-      )
-      .order('orden', {
-        ascending: true
-      })
+  // =====================================================
+  // 1. FOTOS GENERALES DEL PRODUCTO
+  // =====================================================
 
-    if (error) {
-      console.error(
-        'ERROR FOTOS PORTADA:',
-        error
-      )
-    } else {
-      ;(data || []).forEach(
-        (imagen: Imagen) => {
-          if (
-            imagen.producto_id &&
-            imagen.image_url?.trim() &&
-            !mapa[
-              imagen.producto_id
-            ]
-          ) {
-            mapa[
-              imagen.producto_id
-            ] =
-              imagen.image_url.trim()
-          }
-        }
-      )
-    }
+  const {
+    data: imagenesGenerales,
+    error: errorGenerales
+  } = await supabase
+    .from('ProductoImagenes')
+    .select('producto_id, image_url, orden')
+    .order('orden', { ascending: true })
 
-    productos.forEach(
-      producto => {
+  if (errorGenerales) {
+    console.error(
+      'ERROR FOTOS PORTADA:',
+      errorGenerales
+    )
+  } else {
+    ;(imagenesGenerales || []).forEach(
+      (imagen: Imagen) => {
         if (
-          !mapa[producto.id] &&
-          producto.image?.trim()
+          imagen.producto_id &&
+          imagen.image_url?.trim() &&
+          !mapa[imagen.producto_id]
         ) {
-          mapa[producto.id] =
-            producto.image.trim()
+          mapa[imagen.producto_id] =
+            imagen.image_url.trim()
         }
       }
     )
-
-    setImagenesPortada(mapa)
   }
+
+  // =====================================================
+  // 2. IMAGEN DE Productos.image COMO RESPALDO
+  // =====================================================
+
+  productos.forEach(producto => {
+    if (
+      !mapa[producto.id] &&
+      producto.image?.trim()
+    ) {
+      mapa[producto.id] =
+        producto.image.trim()
+    }
+  })
+
+  // =====================================================
+  // 3. FOTOS DE VARIANTES
+  //
+  // Si el producto tiene talle/modelo y la imagen está
+  // guardada en ProductoVarianteImagenes, usamos la
+  // primera imagen de cualquiera de sus variantes como
+  // imagen de portada.
+  // =====================================================
+
+  const {
+    data: variantes,
+    error: errorVariantes
+  } = await supabase
+    .from('ProductoVariantes')
+    .select('id, producto_id')
+    .order('id', { ascending: true })
+
+  if (errorVariantes) {
+    console.error(
+      'ERROR VARIANTES PARA PORTADAS:',
+      errorVariantes
+    )
+  } else if (
+    variantes &&
+    variantes.length > 0
+  ) {
+    const ids = variantes
+      .map(variante => Number(variante.id))
+      .filter(id => Number.isFinite(id))
+
+    if (ids.length > 0) {
+      const {
+        data: imagenesVariantes,
+        error: errorImagenesVariantes
+      } = await supabase
+        .from('ProductoVarianteImagenes')
+        .select(
+          'variante_id, image_url, orden'
+        )
+        .in('variante_id', ids)
+        .order('orden', {
+          ascending: true
+        })
+
+      if (errorImagenesVariantes) {
+        console.error(
+          'ERROR FOTOS DE VARIANTES PARA PORTADAS:',
+          errorImagenesVariantes
+        )
+      } else {
+        const productoPorVariante:
+          Record<number, number> = {}
+
+        variantes.forEach(variante => {
+          const varianteId =
+            Number(variante.id)
+
+          const productoId =
+            Number(variante.producto_id)
+
+          if (
+            Number.isFinite(varianteId) &&
+            Number.isFinite(productoId)
+          ) {
+            productoPorVariante[
+              varianteId
+            ] = productoId
+          }
+        })
+
+        ;(imagenesVariantes || []).forEach(
+          imagen => {
+            const productoId =
+              productoPorVariante[
+                Number(imagen.variante_id)
+              ]
+
+            const url =
+              imagen.image_url?.trim()
+
+            if (
+              productoId &&
+              url &&
+              !mapa[productoId]
+            ) {
+              mapa[productoId] = url
+            }
+          }
+        )
+      }
+    }
+  }
+
+  setImagenesPortada(mapa)
+}
 
   // =====================================================
   // CARGAR FOTOS GENERALES
@@ -1518,6 +1608,7 @@ async function cargarProductos() {
         'PEDIDO CREADO:',
         pedidoId
       )
+      setTotalPedidoCreado(totalCarrito)
 
       // ============================================
       // ESTADÍSTICA PEDIDO
@@ -2498,60 +2589,88 @@ async function cargarProductos() {
               </form>
             ) : (
               <div className="checkout-exito">
-                <div className="checkout-exito-icono">
-                  ✓
-                </div>
+             <div className="checkout-exito-icono">
+  ✓
+</div>
 
-                <h1>
-                  ¡Gracias por tu compra!
-                </h1>
+<h1>
+  ¡Gracias por tu compra!
+</h1>
 
-                <p>
-                  Recibimos tu pedido
-                  correctamente.
-                </p>
+<p>
+  Recibimos tu pedido correctamente.
+</p>
 
-                <p>
-                  Tu pedido quedó
-                  pendiente de
-                  confirmación.
-                </p>
+<p>
+  Tu pedido quedó pendiente de confirmación.
+</p>
 
-                {emailEnviado ? (
-                  <p>
-                    Te enviamos un email con
-                    todos los detalles de tu
-                    compra.
-                  </p>
-                ) : (
-                  <p>
-                    Podés continuar la
-                    coordinación de tu compra
-                    por WhatsApp.
-                  </p>
-                )}
+<div
+  style={{
+    marginTop: '24px',
+    padding: '20px',
+    borderRadius: '12px',
+    background: '#f5f5f5',
+    textAlign: 'left'
+  }}
+>
+  <h3
+    style={{
+      marginTop: 0,
+      marginBottom: '16px'
+    }}
+  >
+    Datos para realizar la transferencia
+  </h3>
 
-                <p>
-                  Para continuar con la
-                  coordinación de tu
-                  compra, escribinos por
-                  WhatsApp.
-                </p>
+  <p>
+    <strong>Medio de pago:</strong>{' '}
+    Mercado Pago
+  </p>
 
-                {urlWhatsAppPedido && (
-                  <button
-                    type="button"
-                    className="producto-boton-carrito"
-                    onClick={() =>
-                      window.open(
-                        urlWhatsAppPedido,
-                        '_blank'
-                      )
-                    }
-                  >
-                    Continuar por WhatsApp
-                  </button>
-                )}
+  <p>
+    <strong>Alias:</strong>{' '}
+    LUCKEPET
+  </p>
+
+  <p>
+    <strong>CVU:</strong>{' '}
+    0000003100028774219628
+  </p>
+
+  <p>
+    <strong>Titular:</strong>{' '}
+    Carla Puig
+  </p>
+
+  <p
+    style={{
+      marginBottom: 0,
+      fontSize: '20px'
+    }}
+  >
+    <strong>Total a transferir:</strong>{' '}
+    ${totalPedidoCreado.toLocaleString('es-AR')}
+  </p>
+</div>
+
+{emailEnviado ? (
+  <p>
+    Te enviamos un email con todos los
+    detalles de tu compra.
+  </p>
+) : (
+  <p>
+    Podés continuar la coordinación de tu
+    compra por WhatsApp.
+  </p>
+)}
+
+<p>
+  ¿Ya realizaste la transferencia?
+  Avisanos por WhatsApp para que podamos
+  verificar tu pago.
+</p>
 
                 <button
                   type="button"
@@ -3271,7 +3390,73 @@ async function cargarProductos() {
           </div>
         </>
       )}
+      {/* =================================================
+          BURBUJA WHATSAPP
+      ================================================= */}
 
+      <button
+        type="button"
+        aria-label="Contactar por WhatsApp"
+        onClick={() => {
+          const url =
+            urlWhatsAppPedido ||
+            `https://wa.me/${WHATSAPP_NUMERO}?text=${encodeURIComponent(
+              'Hola LuckePet 👋 Quiero hacer una consulta.'
+            )}`
+
+          window.open(
+            url,
+            '_blank',
+            'noopener,noreferrer'
+          )
+        }}
+        style={{
+          position: 'fixed',
+          right: '18px',
+          bottom: '18px',
+          width: '58px',
+          height: '58px',
+          border: 'none',
+          borderRadius: '50%',
+          background: '#25D366',
+          color: '#fff',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          zIndex: 12000,
+          boxShadow: '0 4px 14px rgba(0,0,0,.25)',
+          transition: 'transform .2s ease, box-shadow .2s ease'
+        }}
+        onMouseEnter={e => {
+          e.currentTarget.style.transform = 'scale(1.08)'
+          e.currentTarget.style.boxShadow =
+            '0 6px 18px rgba(0,0,0,.30)'
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.transform = 'scale(1)'
+          e.currentTarget.style.boxShadow =
+            '0 4px 14px rgba(0,0,0,.25)'
+        }}
+      >
+        <svg
+          width="30"
+          height="30"
+          viewBox="0 0 24 24"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
+        >
+          <path
+            d="M20.52 3.48A11.86 11.86 0 0 0 12.05 0C5.48 0 .13 5.35.13 11.92c0 2.1.55 4.15 1.6 5.96L.03 24l6.26-1.64a11.9 11.9 0 0 0 5.76 1.47h.01c6.57 0 11.91-5.35 11.91-11.92 0-3.18-1.24-6.17-3.45-8.43Z"
+            fill="white"
+          />
+          <path
+            d="M17.47 14.36c-.3-.15-1.77-.87-2.05-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.95 1.17-.17.2-.35.22-.65.07-.3-.15-1.26-.46-2.4-1.48-.89-.79-1.49-1.77-1.66-2.07-.17-.3-.02-.46.13-.61.14-.14.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.07-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.79.37-.27.3-1.04 1.02-1.04 2.49s1.07 2.89 1.22 3.09c.15.2 2.1 3.2 5.09 4.49.71.31 1.27.49 1.7.63.72.23 1.37.2 1.89.12.58-.09 1.77-.72 2.02-1.42.25-.7.25-1.3.17-1.42-.07-.12-.27-.2-.57-.35Z"
+            fill="#25D366"
+          />
+        </svg>
+      </button>
       <Footer />
     </div>
   )
